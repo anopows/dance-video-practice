@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#131714"><title>Practice · Choreo</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/static/practice.css?v=5"><script defer src="/static/core.js?v=5"></script><script defer src="/static/playback.js?v=5"></script><script defer src="/static/practice-loader.js?v=5"></script></head>
+<body><main class="practice">
+<nav><a id="back-link" href="/" aria-label="Back to videos">← Videos</a><span id="room-video-name">Loading…</span><button id="share" disabled>Share</button><button id="more" aria-haspopup="dialog">Tools</button></nav>
+<section class="stage" aria-label="Dance video"><video id="video" playsinline preload="auto" aria-label="Dance video"></video></section>
+<section class="controls" aria-label="Playback and counts">
+<canvas id="count-canvas" width="720" height="96" role="img" aria-label="Music counts 1 to 8"></canvas>
+<p id="count-warning" class="notice" hidden></p>
+<input id="seek" type="range" min="0" max="60" step="0.001" value="0" disabled aria-label="Video position">
+<div class="transport"><button id="prev-beat" aria-label="Previous beat">‹ Beat</button><button id="play" class="primary" disabled>Play</button><button id="next-beat" aria-label="Next beat">Beat ›</button><output id="clock">0:00</output></div>
+<div id="speeds" class="speeds" role="group" aria-label="Playback speed"><button data-speed="0.25" aria-pressed="false">25%</button><button data-speed="0.5" aria-pressed="true">50%</button><button data-speed="0.75" aria-pressed="false">75%</button><button data-speed="1" aria-pressed="false">100%</button></div>
+<p id="error" role="alert" hidden></p>
+</section>
+<dialog id="tools"><div class="dialog-heading"><h1>Practice tools</h1><button id="close-tools" aria-label="Close tools">Done</button></div>
+<section id="share-fallback" hidden><h2>Share this video</h2><input id="share-url" readonly aria-label="Share link"><p class="muted">Anyone with this link can practice without a password.</p></section>
+<section><h2>Repeat</h2><div class="row"><select id="loop-size" aria-label="Loop length"><option value="8">8 counts</option><option value="16">16 counts</option><option value="32">32 counts</option></select><button id="loop-current">Loop here</button><button id="loop-off" disabled>Stop</button></div><p id="loop-status" class="muted">Loop off</p><div class="row"><button id="prev-frame">← Frame</button><button id="next-frame">Frame →</button></div></section>
+<section><h2>Adjust counts</h2><p id="anchor-status" class="muted"></p><div class="row"><button id="set-one">Set 1 here</button><button id="reset-one">Reset</button></div><label>Timing<select id="timing"><option value="attack">Follow beat attacks</option><option value="steady">Steady pulse</option></select></label><label>Shift counts <output id="offset-value">0 ms</output><input id="offset" type="range" min="-500" max="500" step="1" value="0" aria-label="Count timing adjustment in milliseconds"></label><p id="save-status" class="muted" aria-live="polite"></p></section>
+<section><h2>Audio</h2><label>Listen to<select id="listen"><option value="mix">Full mix</option><option value="bass">Bass · estimate</option><option value="drums">Drums · estimate</option><option value="piano">Piano · estimate</option><option value="guitar">Guitar · estimate</option></select></label><p id="audio-quality" class="muted">Original audio</p></section>
+<section><h2>Download with counts</h2><div class="row"><button data-export="1">100% video</button><button data-export="0.25">25% video</button></div><p id="export-status" aria-live="polite"></p></section>
+<p id="expiry" class="muted small"></p></dialog>
+<div id="status" class="sr-only" aria-live="polite"></div>
+</main></body></html>

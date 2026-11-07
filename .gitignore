@@ -1,0 +1,25 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+.env
+.env.*
+!.env.example
+state/
+models/
+*.sqlite*
+*.mp4
+*.wav
+*.pt
+*.pth
+*.ckpt
+*.sdict
+*.tar.gz
+*.log
+
+# Local deployment configuration and audit reports are never public source.
+deploy/cloudflare-config.json
+deploy/cloudflare-state.json
+deploy/network-config.json
+deploy/validation*.json
+deploy/counts-v3-notes.txt

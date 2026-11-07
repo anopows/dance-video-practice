@@ -1,0 +1,30 @@
+[project]
+name = "choreo-practice"
+version = "1.0.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi>=0.115,<1", "uvicorn>=0.30,<1", "httpx>=0.28,<1",
+  "boto3>=1.35,<2", "argon2-cffi>=23,<26", "pydantic-settings>=2.6,<3",
+]
+
+[project.optional-dependencies]
+worker = [
+  "beat-this==1.1.0", "torch==2.5.1", "torchaudio==2.5.1",
+  "numpy>=2,<3", "librosa==0.11.0", "soundfile==0.13.1",
+  "scipy>=1.14,<2", "pillow>=11,<13", "demucs==4.0.1", "essentia==2.1b6.dev1389",
+]
+dev = ["pytest>=8,<10", "moto[s3]>=5,<6", "pillow>=11,<13", "numpy>=2,<3"]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torchaudio = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+

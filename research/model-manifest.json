@@ -1,0 +1,26 @@
+{
+  "beat_this": {
+    "file": "beat_this-final0.ckpt",
+    "url": "https://cloud.cp.jku.at/public.php/dav/files/7ik4RrBKTS273gp/final0.ckpt",
+    "sha256": "8c328b45f59d8dd3dff219253ff6a8d6482be57d0133a29140e2febbf8eb8331"
+  },
+  "hypermeter": {
+    "repository": "https://github.com/music-x-lab/Self-Supervised-Metrical-Structure.git",
+    "commit": "bdabe679a9a5a5900dba56666b535af734e646b7",
+    "weights": "hypermeter.sdict",
+    "sha256": "abcb96c9c1aaf5191c660b98140262e6a9a43430c8209d4c19ab97b044bf8964",
+    "sourceFiles": {
+      "metrical_crf.py": "8b9d00e5fcade49c299d6281628e4437e3b51d1f9cca5d328de58fd80c02992c",
+      "crf.py": "29b03a92b4bb412d6cc79c94fc94cbe33f6f1fe00a64f49e8b676b6cce5e704d",
+      "simple_tcn.py": "ae05555b9200d285fe3c087d4cea1d5eda8e2261c602d3d77efe96b6c286b2f0",
+      "tcn_audio_metrical_structure.py": "62fc3031ba0bb4e1a431cad0939354ecf7c07092b96de76fe78a1395c2aaa268",
+      "extractors/audio_helpers.py": "846ee8b89ab06512f0635b1707de6417d417945045d72f0891cee1704776e154"
+    },
+    "download": "https://drive.google.com/drive/folders/1Er9CJkGLCOTd5ztCblOoGpRx3c3GNcg7"
+  },
+  "demucs": {
+    "model": "htdemucs_6s",
+    "package": "demucs==4.0.1",
+    "source": "https://github.com/facebookresearch/demucs"
+  }
+}

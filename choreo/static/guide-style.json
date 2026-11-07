@@ -1,0 +1,47 @@
+{
+  "schema": 3,
+  "width": 720,
+  "height": 96,
+  "flashDurationSeconds": 0.16,
+  "minimumFlashGain": 0.45,
+  "strengthFlashGain": 0.55,
+  "instrumentOrder": [],
+  "instruments": {
+    "bass": {
+      "label": "Bass",
+      "rgb": [
+        233,
+        146,
+        101
+      ],
+      "media": "media/bass.mp4"
+    },
+    "drums": {
+      "label": "Drums",
+      "rgb": [
+        114,
+        169,
+        237
+      ],
+      "media": "media/drums.mp4"
+    },
+    "piano": {
+      "label": "Piano",
+      "rgb": [
+        216,
+        190,
+        99
+      ],
+      "media": "media/piano.mp4"
+    },
+    "guitar": {
+      "label": "Guitar",
+      "rgb": [
+        107,
+        199,
+        155
+      ],
+      "media": "media/guitar.mp4"
+    }
+  }
+}

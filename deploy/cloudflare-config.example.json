@@ -1,0 +1,64 @@
+{
+  "account_id": "YOUR_CLOUDFLARE_ACCOUNT_ID",
+  "origin": "https://dance.example.com",
+  "hostname": "dance.example.com",
+  "bucket": "choreo-practice",
+  "location_hint": "weur",
+  "public_access": false,
+  "turnstile": {
+    "name": "Choreo Practice",
+    "domains": [
+      "dance.example.com"
+    ],
+    "mode": "managed",
+    "clearance_level": "no_clearance"
+  },
+  "cors": {
+    "rules": [
+      {
+        "id": "practice-playback",
+        "allowed": {
+          "origins": [
+            "https://dance.example.com"
+          ],
+          "methods": [
+            "GET",
+            "HEAD"
+          ],
+          "headers": [
+            "Range"
+          ]
+        },
+        "exposeHeaders": [
+          "Content-Length",
+          "Content-Range",
+          "ETag"
+        ],
+        "maxAgeSeconds": 3600
+      }
+    ]
+  },
+  "lifecycle": {
+    "rules": [
+      {
+        "id": "practice-retention-backstop",
+        "enabled": true,
+        "conditions": {
+          "prefix": ""
+        },
+        "deleteObjectsTransition": {
+          "condition": {
+            "type": "Age",
+            "maxAge": 7776000
+          }
+        },
+        "abortMultipartUploadsTransition": {
+          "condition": {
+            "type": "Age",
+            "maxAge": 86400
+          }
+        }
+      }
+    ]
+  }
+}

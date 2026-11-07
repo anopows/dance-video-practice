@@ -1,0 +1,10 @@
+dance.example.com {
+    encode zstd gzip
+    request_body {
+        max_size 9MB
+    }
+    reverse_proxy 127.0.0.1:18793 {
+        # Replace any client-supplied value; only this loopback proxy is trusted.
+        header_up CF-Connecting-IP {http.request.remote.host}
+    }
+}

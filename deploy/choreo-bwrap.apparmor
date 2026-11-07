@@ -1,0 +1,8 @@
+abi <abi/4.0>,
+include <tunables/global>
+
+# Permit only our root-owned bubblewrap executable to create the namespaces
+# used for isolation. Ubuntu's global user-namespace restriction stays enabled.
+profile choreo-bwrap /opt/choreo/bin/bwrap flags=(unconfined) {
+  userns,
+}

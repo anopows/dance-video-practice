@@ -1,0 +1,29 @@
+[Unit]
+Description=Choreo isolated media processing worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=choreo
+Group=choreo
+WorkingDirectory=/opt/choreo
+EnvironmentFile=/etc/choreo.env
+ExecStartPre=/opt/choreo/.venv/bin/python /opt/choreo/scripts/check-models.py
+ExecStart=/opt/choreo/.venv/bin/python -m choreo.worker
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/choreo
+MemoryMax=6G
+CPUQuota=300%
+TasksMax=128
+LimitNOFILE=1024
+KillMode=control-group
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
