@@ -1,7 +1,7 @@
-# Choreo Practice
+# Dance Video Practice — Counts & Slow Motion
 
-Turn a dance video into a practice player with continuous **1–8 counts**, beat
-stepping, loops, and clearer slow playback.
+Add automatic **1–8 counts** to dance videos. Practice with pitch-preserving slow
+playback, beat stepping, and loops. Share links or export videos with counts.
 
 - Upload once; send the **Share** link. Visitors can practice and download count
   videos without a password.

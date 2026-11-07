@@ -1,4 +1,4 @@
-# Self-host Choreo Practice
+# Self-host Dance Video Practice
 
 This single-room service uses Ubuntu for processing and a private Cloudflare R2
 bucket for temporary media. Link visitors do not sign in. The room password
@@ -22,7 +22,7 @@ installer. CPU analysis is offline and can take several minutes.
 ## 1. Install the host
 
 ```sh
-sudo git clone https://github.com/anopows/choreo-practice-selfhost.git /opt/choreo
+sudo git clone https://github.com/anopows/dance-video-practice.git /opt/choreo
 cd /opt/choreo
 sudo bash scripts/install-host.sh
 ```
