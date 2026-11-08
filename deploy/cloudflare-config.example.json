@@ -1,14 +1,14 @@
 {
   "account_id": "YOUR_CLOUDFLARE_ACCOUNT_ID",
-  "origin": "https://dance.example.com",
-  "hostname": "dance.example.com",
+  "origin": "https://fivesix.example.com",
+  "hostname": "fivesix.example.com",
   "bucket": "choreo-practice",
   "location_hint": "weur",
   "public_access": false,
   "turnstile": {
-    "name": "Choreo Practice",
+    "name": "five·six",
     "domains": [
-      "dance.example.com"
+      "fivesix.example.com"
     ],
     "mode": "managed",
     "clearance_level": "no_clearance"
@@ -19,7 +19,7 @@
         "id": "practice-playback",
         "allowed": {
           "origins": [
-            "https://dance.example.com"
+            "https://fivesix.example.com"
           ],
           "methods": [
             "GET",

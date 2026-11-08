@@ -1,4 +1,4 @@
-dance.example.com {
+fivesix.example.com {
     encode zstd gzip
     request_body {
         max_size 9MB

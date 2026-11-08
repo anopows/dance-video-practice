@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="CHOREO_", env_file=None)
-    origin: str = "https://dance.example.com"
+    origin: str = "https://fivesix.example.com"
     state_dir: Path = Path("/var/lib/choreo")
     password_hash: str = ""
     turnstile_site_key: str = ""

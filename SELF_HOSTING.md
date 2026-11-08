@@ -111,7 +111,7 @@ sudoedit /etc/caddy/Caddyfile
 sudo caddy validate --config /etc/caddy/Caddyfile
 sudo systemctl enable --now choreo-api choreo-worker caddy
 sudo systemctl reload caddy
-curl --fail https://dance.example.com/healthz
+curl --fail https://fivesix.example.com/healthz
 ```
 
 Replace the example hostname with your domain. If the host already serves sites
