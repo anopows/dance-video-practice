@@ -27,7 +27,7 @@
   const saved=window.PRACTICE_SAVED||{},valid=C.validateSettings(saved,D),mode=saved.timingMode==='steady'?'steady':'attack';
   const offset0=mode==='attack'&&saved.timingId&&saved.timingId!==D.attack.id?0:valid?.offset??0;
   const state={anchor:valid?.anchor??D.defaultAnchor,offset:offset0,timingMode:mode,offsets:{steady:0,attack:0},
-    reviewed:valid?.reviewed??false,listen:'mix',loop:null,loopLen:8,frameMode:store.get('five-six-frame-mode')==='1'||unsupported,localFix:!owner&&R.hasLocal};
+    reviewed:valid?.reviewed??false,listen:'mix',loop:null,loopLen:8,loopFirst:0,frameMode:store.get('five-six-frame-mode')==='1'||unsupported,localFix:!owner&&R.hasLocal};
   state.offsets[mode]=offset0;
   let frameId=0,pendingSource=null,sourceKey='',endedLoopPending=false,saveTimer,eightTimes=[],lastPlaying=null;
   const speedKey='choreo-speed:'+D.sourceSha256;let initialSpeed=1;
@@ -128,17 +128,8 @@
   });
 
   // ---------- repeat ----------
-  function loopRange(from,size){
-    const p=C.eventAt(D,from+1e-3,state.anchor,state.offset,state.timingMode);
-    const index=p.index??(state.timingMode==='attack'&&D.attack?D.attack.events[0]?.index:0)??0;
-    let first=state.anchor+Math.floor((index-state.anchor)/8)*8;
-    // An eight that starts before the video (pickup) is incomplete: use the first full one.
-    if(C.anchorTime(D,first,state.timingMode)+state.offset<0)first+=8;
-    const start=C.clamp(C.anchorTime(D,first,state.timingMode)+state.offset,0,D.duration);
-    let end=C.clamp(C.anchorTime(D,first+size,state.timingMode)+state.offset,0,D.duration);
-    if(!(end>start))end=D.duration;
-    return [start,end];
-  }
+  // The repeat remembers its first beat index; times are derived from the current counts.
+  function loopTimes(){return C.repeatRange(D,state.loopFirst,state.loopLen,state.offset,D.duration,state.timingMode);}
   function updateRepeat(){
     const on=!!state.loop;
     $('repeat').setAttribute('aria-pressed',String(on));$('repeat-bar').hidden=!on;$('repeat-tag').hidden=!on;
@@ -149,18 +140,19 @@
     }
     render();
   }
-  function setRepeat(size,from){state.loopLen=size;state.loop=loopRange(from,size);updateRepeat();}
+  function setRepeat(size,first){state.loopLen=size;state.loopFirst=first;state.loop=loopTimes();updateRepeat();}
   function stopRepeat(){if(!state.loop)return;state.loop=null;updateRepeat();say('Repeat off');}
   $('repeat').addEventListener('click',()=>{
     if(state.loop){stopRepeat();return;}
-    setRepeat(8,time());seek(state.loop[0],{manual:false,pause:false});say('Repeating this eight');
+    setRepeat(8,C.repeatStart(D,time(),state.anchor,state.offset,state.timingMode));seek(state.loop[0],{manual:false,pause:false});say('Repeating this eight');
   });
   for(const c of document.querySelectorAll('[data-len]'))c.addEventListener('click',()=>{
-    setRepeat(Number(c.dataset.len),state.loop?state.loop[0]:time());
+    setRepeat(Number(c.dataset.len),state.loop?state.loopFirst:C.repeatStart(D,time(),state.anchor,state.offset,state.timingMode));
     const t=time();if(t<state.loop[0]||t>=state.loop[1])seek(state.loop[0],{manual:false,pause:false});
   });
   $('repeat-stop').addEventListener('click',stopRepeat);
-  function refreshLoop(){if(state.loop)setRepeat(state.loopLen,state.loop[0]);}
+  // After a count fix keep the same beats; a new 1 re-aligns to the eight that contains them.
+  function refreshLoop(){if(state.loop)setRepeat(state.loopLen,C.alignEight(D,state.loopFirst,state.anchor,state.offset,state.timingMode));}
 
   // ---------- audio sources ----------
   function changeSource({force=false}={}){
@@ -199,9 +191,14 @@
   $('notice-action').addEventListener('click',()=>noticeHandler?.());
 
   // ---------- sheets ----------
+  const player=document.querySelector('.player');
+  const dockWatch=new ResizeObserver(([entry])=>player.style.setProperty('--sheet-h',`${Math.ceil(entry.target.getBoundingClientRect().height)}px`));
   function openSheet(id){
     for(const d of document.querySelectorAll('dialog[open]'))if(d.id!==id)d.close();
-    const d=$(id);if(!d.open)d.showModal();
+    const d=$(id);
+    // The docked panel is non-modal so the video stays visible and usable.
+    if(d.classList.contains('docked')){if(!d.open){d.show();player.classList.add('fixing');dockWatch.observe(d);}}
+    else if(!d.open)d.showModal();
     if(id==='fix-sheet'){showAlignment();render();}
   }
   for(const d of document.querySelectorAll('dialog.sheet')){
@@ -209,6 +206,7 @@
     for(const b of d.querySelectorAll('[data-close]'))b.addEventListener('click',()=>d.close());
   }
   for(const b of document.querySelectorAll('[data-open]'))b.addEventListener('click',()=>openSheet(b.dataset.open));
+  $('fix-sheet').addEventListener('close',()=>{if($('fix-sheet').open)return;dockWatch.unobserve($('fix-sheet'));player.classList.remove('fixing');render();});
   $('more').addEventListener('click',()=>openSheet('more-sheet'));
 
   // ---------- fix the counts ----------
@@ -220,7 +218,7 @@
     $('mode-attack').setAttribute('aria-checked',String(state.timingMode==='attack'));
     $('mode-steady').setAttribute('aria-checked',String(state.timingMode==='steady'));
   }
-  function changed(){computeEights();refreshLoop();showAlignment();updateNotice();render();save();}
+  function changed(){computeEights();refreshLoop();showAlignment();updateNotice();render();resetDownloads();save();}
   function save(){
     alignment();clearTimeout(saveTimer);const status=$('save-status');status.classList.remove('bad');status.textContent='Saving…';
     saveTimer=setTimeout(async()=>{
@@ -241,7 +239,7 @@
     R.clearLocal();state.localFix=false;
     const shared=window.PRACTICE_SHARED||{},v=C.validateSettings(shared,D),m=shared.timingMode==='steady'?'steady':'attack';
     state.anchor=v?.anchor??D.defaultAnchor;state.offset=v?.offset??0;state.timingMode=m;state.offsets={steady:0,attack:0};state.offsets[m]=state.offset;state.reviewed=v?.reviewed??false;
-    alignment();computeEights();refreshLoop();showAlignment();updateNotice();render();toast('Back to the original counts');
+    alignment();computeEights();refreshLoop();showAlignment();updateNotice();render();resetDownloads();toast('Back to the original counts');
   }
 
   // ---------- hear one instrument ----------
@@ -259,19 +257,33 @@
   for(const b of document.querySelectorAll('[data-listen]'))b.addEventListener('click',()=>{state.listen=b.dataset.listen;updateSolo();changeSource();});
 
   // ---------- download ----------
+  // A finished download belongs to the counts it was made with. Any count fix
+  // turns it back into "Make video" so nobody saves stale counts.
+  const countsKey=()=>JSON.stringify(current());
+  const makeButton=()=>Object.assign(document.createElement('button'),{className:'btn small light',textContent:'Make video'});
+  function resetDownloads(){
+    for(const opt of document.querySelectorAll('[data-export]')){
+      if(!opt.dataset.key||opt.dataset.key===countsKey())continue;
+      delete opt.dataset.key;const meta=opt.querySelector('.opt-meta');meta.style.color='';meta.textContent=opt.dataset.base;
+      opt.querySelector('.opt-action').replaceChildren(makeButton());
+    }
+  }
   for(const opt of document.querySelectorAll('[data-export]')){
     const speed=Number(opt.dataset.export),meta=opt.querySelector('.opt-meta'),action=opt.querySelector('.opt-action'),prog=opt.querySelector('.prog');
-    const base=`${speed*100}% · ${fmtDur(D.duration/speed)}`;meta.textContent=base;
+    const base=`${speed*100}% · ${fmtDur(D.duration/speed)}`;opt.dataset.base=base;meta.textContent=base;
     if(unsupported){action.querySelector('button').disabled=true;continue;}
     action.addEventListener('click',async e=>{
       if(!(e.target instanceof HTMLButtonElement))return;
       opt.classList.add('busy');action.hidden=true;prog.hidden=false;meta.style.color='';meta.textContent='Making your video… keep practising';
+      delete opt.dataset.key;
       try{
-        alignment();
+        alignment();const key=countsKey();
         const url=await R.exportVideo(speed,{...window.currentAlignment},status=>{meta.textContent=status==='queued'?'Waiting for other downloads to finish…':'Making your video… keep practising';});
-        meta.textContent=base;const a=document.createElement('a');a.className='btn small light';a.href=url;a.rel='noreferrer';a.textContent='Save video';action.replaceChildren(a);
+        if(key!==countsKey()){meta.textContent='Your counts changed. Make a new video.';action.replaceChildren(makeButton());return;}
+        opt.dataset.key=key;meta.textContent=base;
+        const link=document.createElement('a');link.className='btn small light';link.href=url;link.rel='noreferrer';link.textContent='Save video';action.replaceChildren(link);
         if(!$('download-sheet').open)toast('Your video is ready in Download');
-      }catch(err){meta.textContent=err.message;meta.style.color='var(--red)';action.replaceChildren(Object.assign(document.createElement('button'),{className:'btn small light',textContent:'Try again'}));}
+      }catch(err){meta.textContent=err.message;meta.style.color='var(--red)';action.replaceChildren(Object.assign(makeButton(),{textContent:'Try again'}));}
       finally{opt.classList.remove('busy');prog.hidden=true;action.hidden=false;}
     });
   }
@@ -312,6 +324,7 @@
   video.addEventListener('ended',()=>{if(state.loop&&!endedLoopPending){endedLoopPending=true;video.currentTime=P.toMediaTime(state.loop[0],playback.sourceRate);play().finally(()=>endedLoopPending=false);}else render();});
   video.addEventListener('error',()=>{video.dataset.mediaError=String(video.error?.code??'unknown');error("The video didn't load. Reload the page to try again.");$('play').disabled=true;});
   document.addEventListener('keydown',e=>{
+    if(e.key==='Escape'&&$('fix-sheet').open){$('fix-sheet').close();return;}
     if(document.querySelector('dialog[open]')&&!$('fix-sheet').open)return;
     if(['INPUT','SELECT','BUTTON','A','TEXTAREA'].includes(e.target.tagName))return;
     if(e.code==='Space'){e.preventDefault();toggle();}

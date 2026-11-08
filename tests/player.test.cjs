@@ -28,3 +28,19 @@ test('frame stepping matches the normalized 30 fps video',()=>{
   assert.ok(Math.abs(C.frameTarget(1,1,30)-31/30)<1e-10);
   assert.equal(C.frameTarget(0,-1,30),0);
 });
+test('repeat keeps its beats when the counts are nudged or restyled',()=>{
+  const first=C.repeatStart(data,events[13].time,0,0,'attack');
+  assert.equal(first,8);
+  const before=C.repeatRange(data,first,8,0,data.duration,'attack');
+  assert.deepEqual(before,[events[9].time,events[17].time]);
+  // Recomputing from the old start time after +10 ms lands in the previous eight;
+  // keeping the index moves the loop by exactly the offset.
+  assert.equal(C.repeatStart(data,before[0],0,.01,'attack'),0);
+  const after=C.repeatRange(data,first,8,.01,data.duration,'attack');
+  assert.ok(Math.abs(after[0]-before[0]-.01)<1e-9&&Math.abs(after[1]-before[1]-.01)<1e-9);
+  assert.equal(C.alignEight(data,first,3,0,'attack'),3);
+});
+test('repeat skips an incomplete pickup eight',()=>{
+  assert.equal(C.repeatStart(data,0,0,0,'attack'),0);
+  assert.equal(C.repeatStart(data,0,0,-.8,'attack'),8);
+});

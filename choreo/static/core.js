@@ -36,6 +36,25 @@
     const start=anchorTime(data,first,mode)+offset,end=anchorTime(data,first+size,mode)+offset;
     return [clamp(start,0,duration),clamp(end,0,duration)];
   }
+  // Repeat is anchored to beat indices, not timestamps, so count fixes
+  // (offset, style, the 1) move the loop with its beats instead of jumping.
+  function alignEight(data,index,anchor,offset=0,mode='attack'){
+    let first=anchor+Math.floor((index-anchor)/8)*8;
+    // An eight that starts before the video (pickup) is incomplete: use the first full one.
+    if(anchorTime(data,first,mode)+offset<0)first+=8;
+    return first;
+  }
+  function repeatStart(data,time,anchor,offset=0,mode='attack'){
+    const p=eventAt(data,time+1e-3,anchor,offset,mode);
+    const index=p.index??(mode==='attack'&&data.attack?data.attack.events[0]?.index:0)??0;
+    return alignEight(data,index,anchor,offset,mode);
+  }
+  function repeatRange(data,first,size,offset,duration,mode='attack'){
+    const start=clamp(anchorTime(data,first,mode)+offset,0,duration);
+    let end=clamp(anchorTime(data,first+size,mode)+offset,0,duration);
+    if(!(end>start))end=duration;
+    return [start,end];
+  }
   function nearestBeat(beats,t,offset=0){const p=t-offset,i=upperBound(beats,p);if(!beats.length)return -1;if(i===0)return 0;if(i===beats.length)return i-1;return p-beats[i-1]<=beats[i]-p?i-1:i;}
   const countAt=(index,anchor)=>index<0?null:((index-anchor)%8+8)%8+1;
   const accent=count=>count===8?3:count===4?2:[2,6].includes(count)?1:0;
@@ -77,6 +96,6 @@
     }
     return {anchor,offset,reviewed:value.reviewed===true};
   }
-  const api={clamp,beatIndex,gridBeatIndex,gridBeatTime,eventTimes,eventAt,anchorTime,nearestIndex,stepTime,eventLoop,nearestBeat,countAt,accent,attackFlash,guideFrame,frameTarget,loopFor,timeLabel,validateSettings};
+  const api={clamp,alignEight,repeatStart,repeatRange,beatIndex,gridBeatIndex,gridBeatTime,eventTimes,eventAt,anchorTime,nearestIndex,stepTime,eventLoop,nearestBeat,countAt,accent,attackFlash,guideFrame,frameTarget,loopFor,timeLabel,validateSettings};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.PracticeCore=api;
 })(typeof window!=='undefined'?window:globalThis);

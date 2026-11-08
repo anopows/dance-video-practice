@@ -65,21 +65,17 @@
   <button class="row danger owner-only" data-open="delete-sheet" hidden><span class="ri"><svg class="i"><use href="#i-trash"/></svg></span><span class="t"><b>Delete video</b></span></button>
 </dialog>
 
-<dialog id="fix-sheet" class="sheet light-dim" aria-labelledby="fix-title">
-  <div class="grab"></div>
+<dialog id="fix-sheet" class="sheet docked" aria-labelledby="fix-title">
   <div class="sh-head"><h2 id="fix-title">Fix the counts</h2><button class="link" data-close>Done</button></div>
-  <p>Play the music. When you hear the 1, tap the button.</p>
+  <p class="fix-hint">Play the music. When you hear the 1, tap the button.</p>
   <canvas id="fix-canvas" class="counts" width="720" height="96" role="img" aria-label="Waiting for the first beat"></canvas>
   <div class="fix-main"><button id="fix-play" class="play small" aria-label="Play"><svg class="i"><use id="fix-play-icon" href="#i-play"/></svg></button><button id="set-one" class="btn brass wide">This is the 1</button></div>
-  <p id="anchor-status" class="help" style="margin-top:10px"></p>
-  <span class="lbl">Timing</span>
-  <div class="nudge"><button id="earlier" class="btn">Earlier</button><output id="offset-value">0 ms</output><button id="later" class="btn">Later</button></div>
-  <p class="help" style="margin-top:8px">Use this if the counts land a little before or after the beat.</p>
-  <span class="lbl">Count style</span>
-  <div class="seg2" role="radiogroup" aria-label="Count style"><button id="mode-attack" role="radio" aria-checked="true">Follow the band</button><button id="mode-steady" role="radio" aria-checked="false">Even beat</button></div>
-  <p class="help" style="margin-top:8px">Follow the band tracks the musicians' timing. Even beat keeps a steady metronome.</p>
-  <p id="save-status" class="saved" aria-live="polite"></p>
-  <button id="reset-one" class="btn ghost wide">Reset to automatic</button>
+  <p id="anchor-status" class="help fix-status"></p>
+  <div class="fix-row"><span class="lbl" id="timing-label">Timing</span>
+    <div class="nudge" role="group" aria-labelledby="timing-label" title="Use this if the counts land a little before or after the beat."><button id="earlier" class="btn">Earlier</button><output id="offset-value">0 ms</output><button id="later" class="btn">Later</button></div></div>
+  <div class="fix-row"><span class="lbl" id="style-label">Style</span>
+    <div class="seg2" role="radiogroup" aria-labelledby="style-label"><button id="mode-attack" role="radio" aria-checked="true" title="Tracks the musicians' timing">Follow the band</button><button id="mode-steady" role="radio" aria-checked="false" title="Keeps a steady metronome">Even beat</button></div></div>
+  <div class="fix-foot"><p id="save-status" class="saved" aria-live="polite"></p><button id="reset-one" class="link quiet">Reset to automatic</button></div>
 </dialog>
 
 <dialog id="solo-sheet" class="sheet light-dim" aria-labelledby="solo-title">
