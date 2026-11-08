@@ -22,7 +22,7 @@ installer. CPU analysis is offline and can take several minutes.
 ## 1. Install the host
 
 ```sh
-sudo git clone https://github.com/anopows/dance-video-practice.git /opt/choreo
+sudo git clone https://github.com/anopows/fivesix.git /opt/choreo
 cd /opt/choreo
 sudo bash scripts/install-host.sh
 ```

@@ -1,5 +1,5 @@
 [project]
-name = "choreo-practice"
+name = "fivesix"
 version = "1.0.0"
 requires-python = ">=3.12,<3.13"
 dependencies = [

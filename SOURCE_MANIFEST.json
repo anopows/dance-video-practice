@@ -3,7 +3,7 @@
   ".gitignore": "bd433ff7d5ea0ae188860355954df48ae8c50ebabf8dc8a573a5a7a2830126e4",
   "LICENSE": "78e84056972329f86010efc3c433af09168c646840c767c504464493a13d734e",
   "README.md": "4a46413cf803f1b85173145deaf09c8bd3cc3dec13f7fa2cee7fad93c76a7bc0",
-  "SELF_HOSTING.md": "7fc32a256ccaa60f81a4b8a5827935020d0fd93eebe967aaf806ff22d39a35d7",
+  "SELF_HOSTING.md": "2fe24f60d1da883188a4ed37e9b4e97c23555d7eb85350721a04ad68bbbdab27",
   "THIRD_PARTY_NOTICES.md": "049df0e13055c48e8b3da9cfeac76ef0e65e34c1c4b9501e39c8bbbcf2864e7a",
   "choreo/__init__.py": "91442e97256a3ae7b5e8f00b50431f16df37c0ba991ff04693b4e9e98786bce5",
   "choreo/api.py": "b81bb359600e8ace6520fb0ae7d76c8a4d9ea57c3b33a37d186052d5d53c4238",
@@ -38,7 +38,7 @@
   "deploy/choreo-bwrap.apparmor": "d438340aeba855555293806a7843b79e0b953dfbc758ef77f468077d6bc6ade0",
   "deploy/choreo-worker.service": "ee798bd4cdd022fc456401c84b9be5151a738fc839b5b6275c85a72b67d27bc0",
   "deploy/cloudflare-config.example.json": "6d98932262cb2fa34f5ba8c1bde51c7860cd6df8805fa402de4824f3f5b2494e",
-  "pyproject.toml": "63a35869b275233ee836896a05e35799b2450aac3551550bc504ab0bc3c1f1f5",
+  "pyproject.toml": "a0ae6e561b9ba1285b0bec4758959463b1ecf401e2229f1a3118571db909d30c",
   "research/analyze.py": "db5fd94a98e599d09b33805465eafa16c4c505f83fa4df02109c9b78f086dbfe",
   "research/attack_timing.py": "1f195c75166f2070079c74587e5752d847d4f2331490b0fa2c209d759704e046",
   "research/lock_counts.py": "8740c18ee50eb6e730c573d203511f2ddaa597cae73366c48a899f45200e97a0",
@@ -62,5 +62,5 @@
   "tests/test_retention.py": "ad65ce5f9679474b061cfb7551cb2fa2593e77d904373621a39ec104a8861073",
   "tests/test_service.py": "a58c469fd80e20f2d6f763e1526a96965aa48672ada6310536eb0d9af01b0dd8",
   "tests/test_slow_audio.py": "6cba1f4bc6df6ebbcf460e095ec3ea3ec83df0c3c899db31d7fde02decba6007",
-  "uv.lock": "08af512333475f88e18d62281ac68874ac59193948687e822433d3acae2e0580"
+  "uv.lock": "1adf22bc6ff9fccc8df1b937c34b38126e1e7e4d2128c41f80a71ab41c146488"
 }
