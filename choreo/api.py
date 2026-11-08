@@ -4,8 +4,10 @@ import hmac
 import ipaddress
 import json
 import math
+import re
 import secrets
 import time
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -34,15 +36,30 @@ def digest(value):
     return hashlib.sha256(value.encode()).hexdigest()
 
 
-def reject_limit(seconds, message="Too many requests. Please wait before trying again."):
+def reject_limit(seconds, message="Too many requests. Wait a moment and try again."):
     raise HTTPException(429, message, headers={"Retry-After": str(max(1, math.ceil(seconds)))})
 
 
-def rate(db, bucket, count, window, now):
+def rate(db, bucket, count, window, now, message=None):
     rows = db.execute("SELECT stamp FROM requests WHERE bucket=? AND stamp>? ORDER BY stamp", (bucket, now-window)).fetchall()
     if len(rows) >= count:
-        reject_limit(rows[-count][0]+window-now)
+        reject_limit(rows[-count][0]+window-now, *([message] if message else []))
     db.execute("INSERT INTO requests VALUES (?,?)", (bucket, now))
+
+
+CAMERA_NAME = re.compile(r"^(?:pxl|img|vid|mov|dsc|dcim|video|screen ?recording|signal|whatsapp video)?[\s_\-]*[\d\s_\-().~at]*$", re.I)
+
+
+def display_name(name, created):
+    """Friendly title: drop the extension; camera-number names become "Clip · 4 Nov"."""
+    path = Path(name)
+    if path.suffix.lower() not in EXTENSIONS:
+        return name
+    stem = path.stem.strip()
+    if not stem or CAMERA_NAME.match(stem):
+        day = datetime.fromtimestamp(created, timezone.utc)
+        return f"Clip · {day.day} {day.strftime('%b')}"
+    return stem
 
 
 def signature(body):
@@ -57,8 +74,14 @@ class Login(BaseModel):
 class Upload(BaseModel):
     name: str = Field(min_length=1, max_length=180)
     bytes: int = Field(gt=0, le=500_000_000)
-    token: str = Field(min_length=1, max_length=2048)
+    # Uploads are gated by the signed-in session, quotas and rate limits. The
+    # human check happens once, at unlock. Older clients may still send a token.
+    token: str | None = Field(default=None, max_length=2048)
     request_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+
+
+class Rename(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
 
 
 class CountSettings(BaseModel):
@@ -81,7 +104,7 @@ class Export(BaseModel):
 def alignment_value(body, data):
     indices = {e['index'] for e in data['attack']['events']} | set(range(len(data['beats'])))
     if body.anchor not in indices:
-        raise HTTPException(400, 'Choose a beat within this video.')
+        raise HTTPException(400, 'That beat isn\'t in this video. Pick a moment inside the video.')
     return body.model_dump(exclude={'revision'}) | {'schema': 3,
         'sourceSha256': data['sourceSha256'], 'gridId': data['grid']['id'], 'timingId': data['attack']['id']}
 
@@ -98,7 +121,7 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
     async def lifespan(app):
         yield
 
-    app = FastAPI(title="Choreo Practice", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+    app = FastAPI(title="Five Six", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.db, app.state.storage = db, store
     part_slots = asyncio.Semaphore(3)
 
@@ -116,24 +139,24 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
 
     def origin(request):
         if request.headers.get("origin") != cfg.origin:
-            raise HTTPException(403, "Please use this site's own controls.")
+            raise HTTPException(403, "This request came from another site, so it was blocked.")
 
     def session(request, mutation=False):
         token = request.cookies.get(COOKIE, "")
         with db.connect() as con:
             row = con.execute("SELECT * FROM sessions WHERE hash=? AND expires>?", (digest(token), time.time())).fetchone()
         if not row:
-            raise HTTPException(401, "Unlock the practice room to continue.")
+            raise HTTPException(401, "Sign in with the upload password to do this.")
         if mutation:
             origin(request)
             if not hmac.compare_digest(row["csrf"], request.headers.get("x-csrf-token", "")):
-                raise HTTPException(403, "Session check failed. Reload the page.")
+                raise HTTPException(403, "Your session changed. Reload the page.")
         return row
 
     def project(con, pid):
         row = con.execute("SELECT * FROM projects WHERE id=?", (pid,)).fetchone()
         if not row or row["expires"] <= time.time() or row["status"] in ("deleted", "expired"):
-            raise HTTPException(404, "This video is unavailable or has expired.")
+            raise HTTPException(404, f"This video is no longer available. Videos are removed {cfg.retention_seconds // 86400} days after upload.")
         return row
 
     async def verify(token, action):
@@ -142,7 +165,7 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
         with db.connect(write=True) as con:
             con.execute("DELETE FROM proofs WHERE stamp<?", (now-600,))
             if con.execute("SELECT 1 FROM proofs WHERE hash=?", (digest(token),)).fetchone():
-                raise HTTPException(400, "Human check already used. Please complete a new check.")
+                raise HTTPException(400, "This security check was already used. Complete it again.")
             con.execute("INSERT INTO proofs VALUES (?,?)", (digest(token), now))
         try:
             if verifier:
@@ -154,9 +177,9 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
                     r.raise_for_status()
                     result = r.json()
         except (httpx.HTTPError, ValueError):
-            raise HTTPException(503, "Human verification is temporarily unavailable. Try again shortly.")
+            raise HTTPException(503, "The security check isn't available right now. Try again in a minute.")
         if not result.get("success") or result.get("hostname") != cfg.hostname or result.get("action") != action:
-            raise HTTPException(400, "Human check failed or expired. Please try it again.")
+            raise HTTPException(400, "The security check failed or expired. Try it again.")
 
     @app.middleware("http")
     async def security(request, call_next):
@@ -168,7 +191,7 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
             except ValueError:
                 length = -1
             if not 0 <= length <= max_body:
-                return JSONResponse({"detail": "Request body is missing a length or is too large."}, status_code=413)
+                return JSONResponse({"detail": "This request is too large."}, status_code=413)
         if path.startswith("/api/"):
             try:
                 with db.connect(write=True) as con:
@@ -202,20 +225,21 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
             auth = {}
         return {"siteKey": cfg.turnstile_site_key, "maxBytes": cfg.max_bytes,
                 "maxDuration": cfg.max_duration, "partBytes": cfg.part_bytes,
-                "retentionDays": cfg.retention_seconds // 86400, **auth}
+                "retentionDays": cfg.retention_seconds // 86400,
+                "sessionSeconds": cfg.session_seconds, **auth}
 
     @app.post("/api/login")
     async def login(body: Login, request: Request, response: Response):
         origin(request)
         now = time.time()
         with db.connect(write=True) as con:
-            rate(con, "login:"+ip(request), 5, 900, now)
-            rate(con, "login:global", 30, 900, now)
+            rate(con, "login:"+ip(request), 5, 900, now, "Too many tries.")
+            rate(con, "login:global", 30, 900, now, "Too many tries.")
         await verify(body.token, "login")
         try:
             await run_in_threadpool(ph.verify, cfg.password_hash, body.password)
         except VerificationError:
-            raise HTTPException(401, "Password not recognized.")
+            raise HTTPException(401, "That password didn't work. Check it and try again.")
         token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
         with db.connect(write=True) as con:
             con.execute("DELETE FROM sessions WHERE expires<?", (now,))
@@ -235,20 +259,26 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
     @app.get("/api/projects")
     def projects(request: Request):
         session(request)
+        now = time.time()
         with db.connect() as con:
-            rows = con.execute("SELECT id,name,status,created,expires,error FROM projects WHERE expires>? AND status NOT IN ('deleted','expired') ORDER BY created DESC", (time.time(),)).fetchall()
-        return {"projects": [dict(row) for row in rows]}
+            rows = con.execute("SELECT id,name,status,stage,bytes,created,expires,error,json_extract(analysis,'$.duration') AS duration FROM projects WHERE expires>? AND status NOT IN ('deleted','expired') ORDER BY created DESC", (now,)).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row) | {"name": display_name(row["name"], row["created"])}
+            if row["status"] == "ready":
+                item["posterUrl"] = store.url(f"projects/{row['id']}/poster.jpg", min(900, max(1, int(row["expires"]-now))))
+            result.append(item)
+        return {"projects": result}
 
     @app.post("/api/uploads")
     async def begin(body: Upload, request: Request):
         session(request, True)
         if Path(body.name).suffix.lower() not in EXTENSIONS or body.bytes > cfg.max_bytes:
-            raise HTTPException(400, "Choose an MP4, MOV, M4V or WebM up to 500 MB.")
+            raise HTTPException(400, "This file type isn't supported. Use MP4, MOV, M4V or WebM.")
         with db.connect() as con:
             existing = con.execute("SELECT id,status,expires FROM projects WHERE id=?", (body.request_id,)).fetchone()
         if existing and existing["expires"] > time.time():
             return dict(existing)
-        await verify(body.token, "upload")
         now = time.time()
         def reserve():
             with db.connect(write=True) as con:
@@ -257,23 +287,23 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
                     return dict(existing)
                 active = con.execute("SELECT 1 FROM projects WHERE status IN ('creating','uploading','completing','queued','processing') AND expires>? AND (status NOT IN ('creating','uploading') OR upload_deadline>?)", (now, now)).fetchone()
                 if active:
-                    reject_limit(30, "One video is already uploading or processing. Please wait for it to finish.")
+                    reject_limit(30, "Another video is still uploading or being prepared. Wait for it to finish, then add this one.")
                 for window, count in ((600, 3), (86400, 10)):
                     rows = con.execute("SELECT created FROM projects WHERE created>? ORDER BY created", (now-window,)).fetchall()
                     if len(rows) >= count:
-                        reject_limit(rows[-count][0]+window-now, "The room has reached its upload limit. Try again later.")
+                        reject_limit(rows[-count][0]+window-now, "This site has reached its upload limit for now.")
                 used = con.execute("SELECT COALESCE(SUM(bytes),0) FROM projects WHERE created>?", (now-86400,)).fetchone()[0]
                 if used+body.bytes > 2_000_000_000:
-                    reject_limit(86400, "The room has reached its 2 GB daily upload allowance.")
+                    reject_limit(86400, "Today's 2 GB upload limit is used up. Try again tomorrow.")
                 # Keep reservations even on cancellation or validation failure.
                 con.execute("INSERT INTO projects (id,name,bytes,created,expires,upload_deadline,status,updated) VALUES (?,?,?,?,?,?,?,?)",
-                    (body.request_id, Path(body.name).name, body.bytes, now, now+cfg.retention_seconds, now+cfg.upload_seconds, "creating", now))
+                    (body.request_id, display_name(Path(body.name).name, now), body.bytes, now, now+cfg.retention_seconds, now+cfg.upload_seconds, "creating", now))
             try:
                 upload_id = store.begin(body.request_id)
             except Exception:
                 with db.connect(write=True) as con:
-                    con.execute("UPDATE projects SET status='failed',error='Could not start storage upload. Please retry.' WHERE id=?", (body.request_id,))
-                raise HTTPException(503, "Could not start the upload. Please retry.")
+                    con.execute("UPDATE projects SET status='failed',error='The upload couldn''t start. Add the video again.' WHERE id=?", (body.request_id,))
+                raise HTTPException(503, "The upload couldn't start. Try again in a moment.")
             with db.connect(write=True) as con:
                 con.execute("UPDATE projects SET status='uploading',upload_id=? WHERE id=?", (upload_id, body.request_id))
             return {"id": body.request_id, "status": "uploading"}
@@ -285,7 +315,7 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
         with db.connect() as con:
             row = project(con, pid)
             parts = [r[0] for r in con.execute("SELECT number FROM parts WHERE project=? ORDER BY number", (pid,))]
-        return {k: row[k] for k in ("id", "name", "bytes", "status", "stage", "error", "expires", "revision")} | {"parts": parts, "partBytes": cfg.part_bytes, "uploadDeadline": row["upload_deadline"]}
+        return {k: row[k] for k in ("id", "bytes", "status", "stage", "error", "expires", "revision")} | {"name": display_name(row["name"], row["created"]), "parts": parts, "partBytes": cfg.part_bytes, "uploadDeadline": row["upload_deadline"]}
 
     @app.put("/api/uploads/{pid}/parts/{number}")
     async def part(pid: str, number: int, request: Request):
@@ -293,30 +323,30 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
         with db.connect() as con:
             row = project(con, pid)
         if row["status"] != "uploading" or row["upload_deadline"] <= time.time():
-            raise HTTPException(409, "This upload has closed. Start a new upload.")
+            raise HTTPException(409, "This upload has expired. Add the video again.")
         n = math.ceil(row["bytes"]/cfg.part_bytes)
         if not 1 <= number <= n:
-            raise HTTPException(400, "Invalid upload part.")
+            raise HTTPException(400, "The upload was interrupted. Choose the same file to continue.")
         expected = min(cfg.part_bytes, row["bytes"]-(number-1)*cfg.part_bytes)
         if int(request.headers.get("content-length", -1)) != expected:
-            raise HTTPException(400, "Upload part has the wrong size.")
+            raise HTTPException(400, "The upload was interrupted. Choose the same file to continue.")
         if part_slots.locked():
-            reject_limit(2, "Upload is busy. Retry this part shortly.")
+            reject_limit(2, "The upload is busy. Retrying…")
         async with part_slots:
             data = bytearray()
             async for chunk in request.stream():
                 data.extend(chunk)
                 if len(data) > expected:
-                    raise HTTPException(413, "Upload part exceeds the reserved size.")
+                    raise HTTPException(413, "The upload was interrupted. Choose the same file to continue.")
             if len(data) != expected:
-                raise HTTPException(400, "Incomplete upload part.")
+                raise HTTPException(400, "The upload was interrupted. Choose the same file to continue.")
             if number == 1 and not signature(data):
-                raise HTTPException(400, "This does not look like a supported video file.")
+                raise HTTPException(400, "This doesn't look like a video file.")
             def save_part():
                 with db.connect(write=True) as con:
                     current = project(con, pid)
                     if current["status"] != "uploading" or current["upload_deadline"] <= time.time():
-                        raise HTTPException(409, "Upload has closed.")
+                        raise HTTPException(409, "This upload has expired. Add the video again.")
                     rate(con, f"part:{pid}:{number}", 10, 1800, time.time())
                     etag = store.part(pid, row["upload_id"], number, bytes(data))
                     con.execute("INSERT OR REPLACE INTO parts VALUES (?,?,?,?)", (pid, number, etag, expected))
@@ -331,7 +361,7 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
             if row["status"] in ("queued", "processing", "ready"):
                 return {"id": pid, "status": row["status"]}
             if row["status"] not in ("uploading", "completing") or row["upload_deadline"] <= time.time():
-                raise HTTPException(409, "This upload has closed.")
+                raise HTTPException(409, "This upload has expired. Add the video again.")
             # HEAD handles a crash after R2 completion but before SQLite commit.
             try:
                 size = store.size(store.original(pid))
@@ -343,11 +373,11 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
                 parts = store.parts(pid, row["upload_id"])
                 n = math.ceil(row["bytes"]/cfg.part_bytes)
                 if len(parts) != n or any(p["PartNumber"] != i+1 or p["Size"] != min(cfg.part_bytes, row["bytes"]-i*cfg.part_bytes) for i,p in enumerate(parts)):
-                    raise HTTPException(400, "Some upload parts are missing or have the wrong size.")
+                    raise HTTPException(400, "Some of the upload is missing. Choose the same file to continue.")
                 store.complete(pid, row["upload_id"], parts)
                 size = store.size(store.original(pid))
             if size != row["bytes"]:
-                raise HTTPException(400, "Stored video size does not match the reservation.")
+                raise HTTPException(400, "The uploaded file doesn't match. Add the video again.")
             now = time.time()
             con.execute("UPDATE projects SET status='queued',updated=? WHERE id=?", (now, pid))
             con.execute("INSERT OR IGNORE INTO jobs (id,project,kind,status,created,updated) VALUES (?,?,'analyze','queued',?,?)", (secrets.token_hex(16), pid, now, now))
@@ -362,6 +392,17 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
             con.execute("UPDATE jobs SET status='cancelled' WHERE project=? AND status='queued'", (pid,))
         return {"ok": True}
 
+    @app.patch("/api/projects/{pid}")
+    def rename(pid: str, body: Rename, request: Request):
+        session(request, True)
+        name = " ".join(body.name.split())
+        if not name or any(ord(ch) < 32 for ch in name):
+            raise HTTPException(400, "Give the video a name.")
+        with db.connect(write=True) as con:
+            project(con, pid)
+            con.execute("UPDATE projects SET name=?,updated=? WHERE id=?", (name, time.time(), pid))
+        return {"name": name}
+
     @app.get("/api/projects/{pid}/practice")
     def practice(pid: str, request: Request):
         # The unlisted, random 128-bit project URL grants access to this video.
@@ -369,7 +410,7 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
         with db.connect() as con:
             row = project(con, pid)
         if row["status"] != "ready":
-            raise HTTPException(409, "The video is not ready yet.")
+            raise HTTPException(409, "This video is still being prepared. Try again in a few minutes.")
         ttl = min(900, max(1, int(row["expires"]-time.time())))
         analysis = json.loads(row["analysis"])
         media = {"mix": store.url(f"projects/{pid}/practice.mp4", ttl)}
@@ -382,7 +423,7 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
             speed_media = {rate: store.url(f"projects/{pid}/{filename}", ttl)
                            for rate, filename in SLOW_MEDIA.items() if rate in slow.get("rates", [])}
         return {"speedMedia": speed_media, "analysis": analysis, "alignment": json.loads(row["alignment"]),
-            "revision": row["revision"], "name": row["name"], "expires": row["expires"],
+            "revision": row["revision"], "name": display_name(row["name"], row["created"]), "expires": row["expires"],
             "videoUrl": media["mix"], "mediaUrls": media,
             "posterUrl": store.url(f"projects/{pid}/poster.jpg", ttl), "urlExpires": time.time()+ttl}
 
@@ -392,9 +433,9 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
         with db.connect(write=True) as con:
             row = project(con, pid)
             if row["status"] != "ready":
-                raise HTTPException(409, "The video is not ready.")
+                raise HTTPException(409, "This video is still being prepared. Try again in a few minutes.")
             if row["revision"] != body.revision:
-                raise HTTPException(409, "Alignment changed in another window. Reload before saving.")
+                raise HTTPException(409, "The counts were changed in another window. Reload to see the latest version.")
             data = json.loads(row["analysis"])
             value = alignment_value(body, data)
             # Export saves alignment first. An unchanged save must retain its
@@ -412,19 +453,19 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
         with db.connect(write=True) as con:
             row = project(con, pid)
             if row["status"] != "ready" or row["revision"] != body.revision:
-                raise HTTPException(409, "Save your current alignment before exporting.")
+                raise HTTPException(409, "Your count changes haven't saved yet. Try again in a moment.")
             data = json.loads(row["analysis"])
             if data.get("countQuality", {}).get("unsupported"):
-                raise HTTPException(409, "The music is too unclear for a reliable count video. Try a longer clip with clearer music.")
+                raise HTTPException(409, "No steady beat was found, so a video with counts can't be made for this clip.")
             chosen = alignment_value(body.settings, data) if body.settings else json.loads(row["alignment"])
-            payload = json.dumps({"renderer": "counts-r3-v4", "revision": body.revision, "speed": body.speed, "settings": chosen}, sort_keys=True)
+            payload = json.dumps({"renderer": "counts-r3-v5", "revision": body.revision, "speed": body.speed, "settings": chosen}, sort_keys=True)
             old = con.execute("SELECT * FROM jobs WHERE project=? AND kind='export' AND payload=?", (pid, payload)).fetchone()
             if old:
                 return {"id": old["id"], "status": old["status"]}
             rate(con, "exports:"+ip(request), 6, 3600, time.time())
             rate(con, "exports:room", 10, 3600, time.time())
             if con.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','processing')").fetchone()[0] >= 4:
-                reject_limit(30, "The processing queue is full. Please try later.")
+                reject_limit(30, "Too many videos are being made right now. Try again in a few minutes.")
             jid, now = secrets.token_hex(16), time.time()
             con.execute("INSERT INTO jobs (id,project,kind,status,created,updated,payload) VALUES (?,?,'export','queued',?,?,?)", (jid, pid, now, now, payload))
         return {"id": jid, "status": "queued"}
@@ -433,7 +474,7 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
         with db.connect() as con:
             row = con.execute("SELECT * FROM jobs WHERE id=? AND kind='export'", (jid,)).fetchone()
             if not row or (pid is not None and row['project'] != pid):
-                raise HTTPException(404, "Export not found.")
+                raise HTTPException(404, "This download is no longer available.")
             p = project(con, row["project"])
         result = {"id": jid, "status": row["status"], "error": row["error"]}
         if row["status"] == "ready":

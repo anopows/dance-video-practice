@@ -63,7 +63,7 @@ class Worker:
         now = time.time()
         with self.db.connect(write=True) as con:
             con.execute("UPDATE projects SET status='expired',cleanup_done=0 WHERE expires<=? AND status NOT IN ('deleted','expired')", (now,))
-            con.execute("UPDATE projects SET status='failed',error='Upload expired. Please select the video again.' WHERE status IN ('uploading','creating','completing') AND upload_deadline<=?", (now,))
+            con.execute("UPDATE projects SET status='failed',error='This upload took too long and expired. Add the video again.' WHERE status IN ('uploading','creating','completing') AND upload_deadline<=?", (now,))
             rows = con.execute("SELECT * FROM projects WHERE status IN ('deleted','expired','failed') AND cleanup_done=0").fetchall()
             con.execute("DELETE FROM requests WHERE stamp<?", (now-86400,))
             con.execute("DELETE FROM proofs WHERE stamp<?", (now-600,))
@@ -87,9 +87,9 @@ class Worker:
         # surviving worker to race with; output uploads use deterministic keys.
         with self.db.connect(write=True) as con:
             con.execute("UPDATE jobs SET status='queued' WHERE status='processing' AND attempt<2")
-            con.execute("UPDATE jobs SET status='failed',error='Processing was interrupted twice.' WHERE status='processing'")
+            con.execute("UPDATE jobs SET status='failed',error='Processing stopped twice on this video. Try a shorter clip or a different file.' WHERE status='processing'")
             con.execute("UPDATE projects SET status='queued' WHERE status='processing' AND id IN (SELECT project FROM jobs WHERE kind='analyze' AND status='queued')")
-            con.execute("UPDATE projects SET status='failed',error='Processing was interrupted. Please try again.' WHERE status='processing'")
+            con.execute("UPDATE projects SET status='failed',error='Processing stopped partway. Add the video again to retry.' WHERE status='processing'")
         for p in self.jobs.iterdir():
             if p.is_dir() and len(p.name) == 32:
                 shutil.rmtree(p)
@@ -101,7 +101,7 @@ class Worker:
                 return None
             con.execute("UPDATE jobs SET status='processing',attempt=attempt+1,updated=? WHERE id=?", (time.time(), job["id"]))
             if job["kind"] == "analyze":
-                con.execute("UPDATE projects SET status='processing',updated=?,stage='Preparing video' WHERE id=?", (time.time(), job["project"]))
+                con.execute("UPDATE projects SET status='processing',updated=?,stage='check' WHERE id=?", (time.time(), job["project"]))
             return dict(job)
 
     def process(self, job):
@@ -137,7 +137,7 @@ class Worker:
                         con.execute("UPDATE jobs SET updated=? WHERE id=?", (time.time(), job["id"]))
                         progress = folder/"progress.json"
                         if progress.exists() and job["kind"] == "analyze":
-                            stage = json.loads(progress.read_text())["stage"]
+                            stage = json.loads(progress.read_text()).get("step", "check")
                             con.execute("UPDATE projects SET stage=?,updated=? WHERE id=?", (stage, time.time(), p["id"]))
                     time.sleep(2)
                 if process.returncode:
@@ -170,7 +170,7 @@ class Worker:
             if process:
                 stop(process)
             validation = False
-            error = "Processing failed. Try a different clip or contact the room owner."
+            error = "Something went wrong with this video. Try again, or ask the person who runs this site."
             if (folder/"error.json").exists():
                 detail = json.loads((folder/"error.json").read_text())
                 error, validation = detail["message"], detail["validation"]

@@ -309,3 +309,41 @@ def test_production_refuses_missing_secrets_and_test_keys(tmp_path):
     cfg=Settings(state_dir=tmp_path,password_hash='$argon2id$example',turnstile_site_key='1x00000000000000000000AA',turnstile_secret='x',r2_endpoint='https://r2.example',r2_access_key='x',r2_secret_key='y')
     with pytest.raises(RuntimeError,match='test keys'):
         cfg.validate_production()
+
+
+def test_upload_needs_session_but_no_second_human_check(room):
+    c,app,*_=room
+    assert c.post("/api/uploads",json={"name":"dance.mp4","bytes":100,"request_id":uuid.uuid4().hex}).status_code==401
+    unlock(c)
+    r=c.post("/api/uploads",json={"name":"dance.mp4","bytes":100,"request_id":uuid.uuid4().hex})
+    assert r.status_code==200,r.text
+
+
+def test_friendly_names_and_rename(room):
+    from choreo.api import display_name
+    created=time.mktime((2026,11,4,12,0,0,0,0,-1))
+    assert display_name("1000093139.mp4",created)=="Clip · 4 Nov"
+    assert display_name("PXL_20261104_192459653 (1).mp4",created)=="Clip · 4 Nov"
+    assert display_name("Thursday routine.mov",created)=="Thursday routine"
+    assert display_name("Already renamed",created)=="Already renamed"
+    c,app,*_=room;unlock(c);pid=ready(c,app)
+    assert c.get("/api/projects").json()["projects"][0]["name"]=="dance"
+    assert c.patch("/api/projects/"+pid,json={"name":"  Thursday \n routine "}).json()["name"]=="Thursday routine"
+    assert c.patch("/api/projects/"+pid,json={"name":""}).status_code==422
+    assert c.patch("/api/projects/"+pid,json={"name":"   "}).status_code==400
+    assert c.get(f"/api/projects/{pid}/practice").json()["name"]=="Thursday routine"
+    c.post('/api/logout',json={});c.headers.pop('X-CSRF-Token',None)
+    assert c.patch("/api/projects/"+pid,json={"name":"Guest name"}).status_code==401
+
+
+def test_library_lists_poster_duration_and_step(room):
+    c,app,*_=room;unlock(c);pid=ready(c,app)
+    with app.state.db.connect(write=True) as db:
+        analysis=json.loads(db.execute('SELECT analysis FROM projects WHERE id=?',(pid,)).fetchone()[0])
+        db.execute('UPDATE projects SET analysis=? WHERE id=?',(json.dumps({**analysis,'duration':48.2}),pid))
+    item=c.get("/api/projects").json()["projects"][0]
+    assert item["duration"]==48.2 and f"projects/{pid}/poster.jpg" in item["posterUrl"]
+    with app.state.db.connect(write=True) as db:
+        db.execute("UPDATE projects SET status='processing',stage='one' WHERE id=?",(pid,))
+    item=c.get("/api/projects").json()["projects"][0]
+    assert item["stage"]=="one" and "posterUrl" not in item

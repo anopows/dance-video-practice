@@ -19,8 +19,11 @@ BOLD='/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
 if not Path(REGULAR).exists():
     REGULAR='/System/Library/Fonts/Supplemental/Arial.ttf'
     BOLD='/System/Library/Fonts/Supplemental/Arial Bold.ttf'
-BG=(20,26,22);FG=(241,243,234);MUTED=(175,186,172)
-ACCENTS=[(153,166,147),(210,237,150),(231,190,112),(244,189,121)]
+# Count strip palette, shared with the player canvas (choreo/static/app.js).
+BG=(12,12,14);CELL=(24,24,28);ACTIVE=(244,242,236);MUTED=(143,142,150)
+BRASS=(232,180,76);BRASS_ON_ACTIVE=(154,106,16)
+PAD,GAP=6,8;CELL_W=(WIDTH-2*PAD-7*GAP)/8;CELL_TOP,CELL_BOTTOM=6,HEIGHT-6
+BAR_HEIGHT={1:2,2:5,3:8};BAR_WIDTH={1:.44,2:.44,3:.62}
 
 def accent(count):
     return 3 if count==8 else 2 if count==4 else 1 if count in (2,6) else 0
@@ -79,19 +82,27 @@ def guide_frame(data,t,anchor,offset=0,timing='attack',style=STYLE):
             'flashes':{key:attack_flash(data['attack']['lanes'][key],t,style) for key in style['instrumentOrder']}}
 
 def make_strip(data,t,anchor,offset,speed,reviewed,timing='attack'):
+    """One accent colour, three bar weights (2/6 thin, 4 medium, 8 thick),
+    a dot marking the 1, and a high-contrast fill for the current count."""
     image=Image.new('RGB',(WIDTH,HEIGHT),BG);draw=ImageDraw.Draw(image)
-    i,count,start,end,source=event_at(data,t,anchor,offset,timing)
-    color=ACCENTS[accent(count)] if count else MUTED
+    count=event_at(data,t,anchor,offset,timing)[1]
     for number in range(1,9):
-        x=10+(number-1)*88;level=accent(number);active=count==number;c=ACCENTS[level]
-        draw.rounded_rectangle((x,10,x+80,86),radius=10,fill=c if active else (34,44,36))
-        draw.text((x+40,46),str(number),font=FONTS[42],fill=BG if active else c,anchor='mm')
-        if level:draw.rectangle((x+14,77,x+66,77+level),fill=BG if active else c)
-        if level==3:draw.line((x+14,72,x+66,72),fill=BG if active else c,width=1)
-    draw.rectangle((358,24,359,71),fill=(70,82,62))
+        x=PAD+(number-1)*(CELL_W+GAP);level=accent(number);active=count==number
+        draw.rounded_rectangle((round(x),CELL_TOP,round(x+CELL_W),CELL_BOTTOM),radius=12,fill=ACTIVE if active else CELL)
+        ink=BG if active else ACTIVE if number==1 else MUTED
+        draw.text((x+CELL_W/2,(CELL_TOP+CELL_BOTTOM)/2-3),str(number),font=FONTS[40],fill=ink,anchor='mm')
+        if level:
+            w=CELL_W*BAR_WIDTH[level];h=BAR_HEIGHT[level];bottom=CELL_BOTTOM-10
+            draw.rounded_rectangle((round(x+(CELL_W-w)/2),bottom-h,round(x+(CELL_W+w)/2),bottom),radius=min(2,h/2),
+                                   fill=BRASS_ON_ACTIVE if active else BRASS)
+        if number==1:
+            cx,cy=x+CELL_W/2,CELL_TOP+11
+            draw.ellipse((cx-3.5,cy-3.5,cx+3.5,cy+3.5),fill=BRASS_ON_ACTIVE if active else BRASS)
+    if count is None:
+        image=Image.blend(Image.new('RGB',(WIDTH,HEIGHT),BG),image,.45)
     return image
 
-FONTS={42:ImageFont.truetype(BOLD,42)}
+FONTS={40:ImageFont.truetype(BOLD,40)}
 
 def render(source,destination,data,*,speed=1,settings=None,timing='attack'):
     if not .25<=speed<=2:raise ValueError('Speed must be between 0.25 and 2')

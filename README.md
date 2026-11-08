@@ -1,16 +1,18 @@
-# Dance Video Practice — Counts & Slow Motion
+# five·six — dance videos with counts and slow motion
 
-Add automatic **1–8 counts** to dance videos. Practice with pitch-preserving slow
-playback, beat stepping, and loops. Share links or export videos with counts.
+Upload a dance video and get **1–8 counts** on it, slow-mo that keeps the pitch,
+beat-by-beat stepping and repeat. Share a link or download the video with the
+counts on. Self-hostable.
 
 - Upload once; send the **Share** link. Visitors can practice and download count
   videos without a password.
-- A room password and Cloudflare Turnstile protect uploads, the video library,
-  deletion, and changes to the shared count alignment.
+- An upload password protects uploads, the video library, renaming, deletion and
+  changes to the shared counts. Cloudflare Turnstile runs once, when unlocking.
 - Uploads and generated media stay available for **90 days from upload**.
 - Download videos with counts at **100% or 25% speed**.
 - Full-mix playback at 25%, 50%, and 75% uses prepared, pitch-preserving Rubber
-  Band R3 audio. Estimated bass, drums, piano, and guitar solos live in Tools.
+  Band R3 audio. AI-separated bass, drums, piano, and guitar are under
+  **More → Hear one instrument**.
 
 [Self-hosting](SELF_HOSTING.md) · [Operations](deploy/RUNBOOK.md) ·
 [Third-party software and models](THIRD_PARTY_NOTICES.md)
@@ -23,9 +25,17 @@ attacks without inserting, deleting, or renumbering counts. Steady pulse mode is
 also available. The display emphasizes 2/4/6/8, more strongly on 4 and 8.
 Counts remain synchronized when changing speed, seeking, and looping.
 
-Playback, speeds, and counts stay in view. Tools contains count correction,
-frame stepping, looping, solo listening, and downloads. There are no flashing
-instrument indicators.
+The player keeps three things on screen: play with beat stepping, speed, and
+**Repeat** (loops the current eight; widen to 16 or 32 counts from the repeat
+bar). Everything else opens as a short sheet under **More**, without covering or
+pausing the video: **Fix the counts** ("This is the 1", 10 ms Earlier/Later
+nudges, *Follow the band* or *Even beat*), **Hear one instrument**, **Download
+with counts**, and **Step by frame**. Signed-in uploaders can also rename and
+delete videos there. There are no flashing instrument indicators.
+
+The count strip marks the current count with a solid fill, the 1 with a dot, and
+the accents with one colour in three weights (2/6, 4, 8). Downloads use the same
+strip.
 
 Share URLs are unlisted, random 128-bit links: **anyone with the link can view
 and forward it**. There is no public video directory. Link visitors cannot change

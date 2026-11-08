@@ -1,7 +1,7 @@
-# Self-host Dance Video Practice
+# Self-host five·six
 
 This single-room service uses Ubuntu for processing and a private Cloudflare R2
-bucket for temporary media. Link visitors do not sign in. The room password
+bucket for temporary media. Link visitors do not sign in. The upload password
 grants upload and management of all room videos.
 
 ## Requirements
@@ -120,14 +120,15 @@ address instead of overwriting the existing setup.
 
 ## 6. Verify the complete flow
 
-1. Open the site. Uploading should require the room password and Turnstile.
+1. Open the site and tap **Add a video**. Unlocking should require the upload
+   password and Turnstile; uploads after that need no second check.
 2. Upload a short dance clip and wait for analysis.
-3. Test 100%, 50%, and 25% playback, seeking, loops, and count correction.
+3. Test 100%, 50%, and 25% playback, seeking, **Repeat**, and **More → Fix the counts**.
 4. Copy **Share** and open it in a private browser window. Playback and 100%/25%
    count exports should work without sign-in.
-5. Adjust counts there. It should say **Saved on this device**, leaving the
-   shared alignment unchanged.
-6. Check the expiry in Tools and the 90-day R2 lifecycle rule.
+5. Fix counts there. It should say **Saved on this device**, leaving the
+   shared counts unchanged.
+6. Check the days left under the video title and the 90-day R2 lifecycle rule.
 7. Verify that unsigned access to the R2 bucket remains disabled.
 
 See [Operations](deploy/RUNBOOK.md) for updates, retention migration, backups,

@@ -1,23 +1,134 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#131714"><title>Practice · Choreo</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/static/practice.css?v=5"><script defer src="/static/core.js?v=5"></script><script defer src="/static/playback.js?v=5"></script><script defer src="/static/practice-loader.js?v=5"></script></head>
-<body><main class="practice">
-<nav><a id="back-link" href="/" aria-label="Back to videos">← Videos</a><span id="room-video-name">Loading…</span><button id="share" disabled>Share</button><button id="more" aria-haspopup="dialog">Tools</button></nav>
-<section class="stage" aria-label="Dance video"><video id="video" playsinline preload="auto" aria-label="Dance video"></video></section>
-<section class="controls" aria-label="Playback and counts">
-<canvas id="count-canvas" width="720" height="96" role="img" aria-label="Music counts 1 to 8"></canvas>
-<p id="count-warning" class="notice" hidden></p>
-<input id="seek" type="range" min="0" max="60" step="0.001" value="0" disabled aria-label="Video position">
-<div class="transport"><button id="prev-beat" aria-label="Previous beat">‹ Beat</button><button id="play" class="primary" disabled>Play</button><button id="next-beat" aria-label="Next beat">Beat ›</button><output id="clock">0:00</output></div>
-<div id="speeds" class="speeds" role="group" aria-label="Playback speed"><button data-speed="0.25" aria-pressed="false">25%</button><button data-speed="0.5" aria-pressed="true">50%</button><button data-speed="0.75" aria-pressed="false">75%</button><button data-speed="1" aria-pressed="false">100%</button></div>
-<p id="error" role="alert" hidden></p>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0C0C0E"><title>five·six</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/static/ui.css?v=6"><link rel="stylesheet" href="/static/practice.css?v=6"><script defer src="/static/core.js?v=6"></script><script defer src="/static/playback.js?v=6"></script><script defer src="/static/practice-loader.js?v=6"></script></head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 15V4m0 0L8 8m4-4l4 4M6 12v6a2 2 0 002 2h8a2 2 0 002-2v-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.8" fill="currentColor"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><circle cx="19" cy="12" r="1.8" fill="currentColor"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z" fill="currentColor"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="4.5" width="4" height="15" rx="1" fill="currentColor"/><rect x="14" y="4.5" width="4" height="15" rx="1" fill="currentColor"/></symbol>
+  <symbol id="i-prev" viewBox="0 0 24 24"><path d="M14 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M10 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-loop" viewBox="0 0 24 24"><path d="M17 3l3 3-3 3M20 6H8a4 4 0 00-4 4v1M7 21l-3-3 3-3M4 18h12a4 4 0 004-4v-1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-one" viewBox="0 0 24 24"><path d="M10 7l3-2v14M9 19h7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M3 12h2m2-4v8m4-11v14m4-10v6m4-3h2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 20h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-frame" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 5v14M16 5v14" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+<main class="player">
+<nav class="bar">
+  <a id="back" class="ib" href="/" aria-label="Back to videos" hidden><svg class="i"><use href="#i-back"/></svg></a>
+  <a id="home-logo" class="logo" href="/" aria-label="five·six home" hidden>five<i>·</i>six</a>
+  <div class="ttl"><b id="video-name"></b><small id="video-sub"></small></div>
+  <button id="share" class="ib" aria-label="Share" disabled><svg class="i"><use href="#i-share"/></svg></button>
+  <button id="more" class="ib" aria-label="More options" aria-haspopup="dialog" disabled><svg class="i"><use href="#i-more"/></svg></button>
+</nav>
+<section class="stage" aria-label="Dance video">
+  <video id="video" playsinline preload="auto" aria-label="Dance video"></video>
+  <span id="solo-tag" class="tag" hidden></span><span id="repeat-tag" class="tag right" hidden></span>
 </section>
-<dialog id="tools"><div class="dialog-heading"><h1>Practice tools</h1><button id="close-tools" aria-label="Close tools">Done</button></div>
-<section id="share-fallback" hidden><h2>Share this video</h2><input id="share-url" readonly aria-label="Share link"><p class="muted">Anyone with this link can practice without a password.</p></section>
-<section><h2>Repeat</h2><div class="row"><select id="loop-size" aria-label="Loop length"><option value="8">8 counts</option><option value="16">16 counts</option><option value="32">32 counts</option></select><button id="loop-current">Loop here</button><button id="loop-off" disabled>Stop</button></div><p id="loop-status" class="muted">Loop off</p><div class="row"><button id="prev-frame">← Frame</button><button id="next-frame">Frame →</button></div></section>
-<section><h2>Adjust counts</h2><p id="anchor-status" class="muted"></p><div class="row"><button id="set-one">Set 1 here</button><button id="reset-one">Reset</button></div><label>Timing<select id="timing"><option value="attack">Follow beat attacks</option><option value="steady">Steady pulse</option></select></label><label>Shift counts <output id="offset-value">0 ms</output><input id="offset" type="range" min="-500" max="500" step="1" value="0" aria-label="Count timing adjustment in milliseconds"></label><p id="save-status" class="muted" aria-live="polite"></p></section>
-<section><h2>Audio</h2><label>Listen to<select id="listen"><option value="mix">Full mix</option><option value="bass">Bass · estimate</option><option value="drums">Drums · estimate</option><option value="piano">Piano · estimate</option><option value="guitar">Guitar · estimate</option></select></label><p id="audio-quality" class="muted">Original audio</p></section>
-<section><h2>Download with counts</h2><div class="row"><button data-export="1">100% video</button><button data-export="0.25">25% video</button></div><p id="export-status" aria-live="polite"></p></section>
-<p id="expiry" class="muted small"></p></dialog>
+<section class="controls" aria-label="Playback and counts">
+  <div id="notice" class="notice" hidden><span id="notice-text"></span><button id="notice-action" class="link" hidden></button></div>
+  <p id="error" class="error" role="alert" hidden></p>
+  <div id="repeat-bar" class="repeat" hidden>
+    <span id="repeat-range"></span>
+    <button class="chip" data-len="8" aria-pressed="true">8</button><button class="chip" data-len="16" aria-pressed="false">16</button><button class="chip" data-len="32" aria-pressed="false">32</button>
+    <button id="repeat-stop" class="chip" aria-label="Stop repeating">✕</button>
+  </div>
+  <canvas id="count-canvas" class="counts" width="720" height="96" role="img" aria-label="Waiting for the first beat"></canvas>
+  <div class="tl">
+    <div class="track"><canvas id="track-canvas" aria-hidden="true"></canvas><input id="seek" type="range" min="0" max="60" step="0.001" value="0" disabled aria-label="Video position"></div>
+    <output id="clock" class="time">0:00.0 / 0:00</output>
+  </div>
+  <div class="transport">
+    <button id="prev-step" class="tb" aria-label="Back one beat"><svg class="i"><use href="#i-prev"/></svg><span>Beat</span></button>
+    <button id="play" class="play" aria-label="Play" disabled><svg class="i"><use id="play-icon" href="#i-play"/></svg></button>
+    <button id="next-step" class="tb" aria-label="Forward one beat"><span>Beat</span><svg class="i"><use href="#i-next"/></svg></button>
+  </div>
+  <div class="bottom">
+    <div id="speeds" class="seg" role="group" aria-label="Speed"><button data-speed="0.25" aria-pressed="false">25%</button><button data-speed="0.5" aria-pressed="false">50%</button><button data-speed="0.75" aria-pressed="false">75%</button><button data-speed="1" aria-pressed="true">100%</button></div>
+    <button id="repeat" class="loopb" aria-pressed="false"><svg class="i"><use href="#i-loop"/></svg>Repeat</button>
+  </div>
+</section>
+
+<dialog id="more-sheet" class="sheet" aria-label="More options">
+  <div class="grab"></div>
+  <button class="row" data-open="fix-sheet"><span class="ri"><svg class="i"><use href="#i-one"/></svg></span><span class="t"><b>Fix the counts</b><small>Move the 1 or nudge the timing</small></span></button>
+  <button class="row" data-open="solo-sheet"><span class="ri"><svg class="i"><use href="#i-wave"/></svg></span><span class="t"><b>Hear one instrument</b><small>Bass, drums, piano or guitar</small></span></button>
+  <button class="row" data-open="download-sheet"><span class="ri"><svg class="i"><use href="#i-down"/></svg></span><span class="t"><b>Download with counts</b><small>Normal speed or 25%</small></span></button>
+  <button class="row" id="frame-mode" role="switch" aria-checked="false"><span class="ri"><svg class="i"><use href="#i-frame"/></svg></span><span class="t"><b>Step by frame</b><small>Arrows move one frame, not one beat</small></span><span class="switch" aria-hidden="true"></span></button>
+  <button class="row owner-only" data-open="rename-sheet" hidden><span class="ri"><svg class="i"><use href="#i-pen"/></svg></span><span class="t"><b>Rename</b></span></button>
+  <button class="row danger owner-only" data-open="delete-sheet" hidden><span class="ri"><svg class="i"><use href="#i-trash"/></svg></span><span class="t"><b>Delete video</b></span></button>
+</dialog>
+
+<dialog id="fix-sheet" class="sheet light-dim" aria-labelledby="fix-title">
+  <div class="grab"></div>
+  <div class="sh-head"><h2 id="fix-title">Fix the counts</h2><button class="link" data-close>Done</button></div>
+  <p>Play the music. When you hear the 1, tap the button.</p>
+  <canvas id="fix-canvas" class="counts" width="720" height="96" role="img" aria-label="Waiting for the first beat"></canvas>
+  <div class="fix-main"><button id="fix-play" class="play small" aria-label="Play"><svg class="i"><use id="fix-play-icon" href="#i-play"/></svg></button><button id="set-one" class="btn brass wide">This is the 1</button></div>
+  <p id="anchor-status" class="help" style="margin-top:10px"></p>
+  <span class="lbl">Timing</span>
+  <div class="nudge"><button id="earlier" class="btn">Earlier</button><output id="offset-value">0 ms</output><button id="later" class="btn">Later</button></div>
+  <p class="help" style="margin-top:8px">Use this if the counts land a little before or after the beat.</p>
+  <span class="lbl">Count style</span>
+  <div class="seg2" role="radiogroup" aria-label="Count style"><button id="mode-attack" role="radio" aria-checked="true">Follow the band</button><button id="mode-steady" role="radio" aria-checked="false">Even beat</button></div>
+  <p class="help" style="margin-top:8px">Follow the band tracks the musicians' timing. Even beat keeps a steady metronome.</p>
+  <p id="save-status" class="saved" aria-live="polite"></p>
+  <button id="reset-one" class="btn ghost wide">Reset to automatic</button>
+</dialog>
+
+<dialog id="solo-sheet" class="sheet light-dim" aria-labelledby="solo-title">
+  <div class="grab"></div>
+  <div class="sh-head"><h2 id="solo-title">Hear one instrument</h2><button class="link" data-close>Done</button></div>
+  <div id="solo-chips" class="chips" role="radiogroup" aria-label="Instrument">
+    <button data-listen="mix" role="radio" aria-checked="true">Full band</button><button data-listen="bass" role="radio" aria-checked="false">Bass</button><button data-listen="drums" role="radio" aria-checked="false">Drums</button><button data-listen="piano" role="radio" aria-checked="false">Piano</button><button data-listen="guitar" role="radio" aria-checked="false">Guitar</button>
+  </div>
+  <p>The instruments are separated by AI, so you'll hear a little of the others in the background. Rhythm guitar and drums get mixed up most often.</p>
+  <p id="solo-missing" hidden></p>
+</dialog>
+
+<dialog id="download-sheet" class="sheet" aria-labelledby="download-title">
+  <div class="grab"></div>
+  <div class="sh-head"><h2 id="download-title">Download with counts</h2><button class="link" data-close>Done</button></div>
+  <p id="download-note">The counts in the video match what you see here, including your fixes.</p>
+  <div class="opt" data-export="1"><div class="t"><b>Normal speed</b><small class="opt-meta">100%</small><div class="prog" hidden><i></i></div></div><span class="opt-action"><button class="btn small light">Make video</button></span></div>
+  <div class="opt" data-export="0.25"><div class="t"><b>Slow-mo</b><small class="opt-meta">25%</small><div class="prog" hidden><i></i></div></div><span class="opt-action"><button class="btn small light">Make video</button></span></div>
+</dialog>
+
+<dialog id="share-sheet" class="sheet" aria-labelledby="share-title">
+  <div class="grab"></div>
+  <div class="sh-head"><h2 id="share-title">Share this video</h2><button class="link" data-close>Done</button></div>
+  <input id="share-url" class="field mono" readonly aria-label="Share link">
+  <button id="copy-link" class="btn light wide" style="margin-top:8px">Copy link</button>
+  <ul class="ticks">
+    <li>Anyone with the link can watch, slow down, repeat and download.</li>
+    <li class="no">They can't change your counts or delete the video.</li>
+    <li class="no" id="share-expiry"></li>
+  </ul>
+</dialog>
+
+<dialog id="rename-sheet" class="sheet" aria-labelledby="rename-title">
+  <div class="grab"></div>
+  <div class="sh-head"><h2 id="rename-title">Rename video</h2></div>
+  <form id="rename-form"><input id="rename-input" class="field" maxlength="80" required aria-label="Video name">
+  <p id="rename-error" class="help" style="color:var(--red);margin-top:8px" hidden></p>
+  <div class="actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn light">Save</button></div></form>
+</dialog>
+
+<dialog id="delete-sheet" class="sheet" aria-labelledby="delete-title">
+  <div class="grab"></div>
+  <div class="sh-head"><h2 id="delete-title">Delete this video?</h2></div>
+  <p>The video, its counts and downloads are removed for everyone with the link. This can't be undone.</p>
+  <p id="delete-error" class="help" style="color:var(--red)" hidden></p>
+  <div class="actions"><button class="btn ghost" data-close>Keep</button><button id="confirm-delete" class="btn danger">Delete</button></div>
+</dialog>
+
+<div id="toast" class="toast" role="status" hidden></div>
 <div id="status" class="sr-only" aria-live="polite"></div>
-</main></body></html>
+</main>
+</body></html>

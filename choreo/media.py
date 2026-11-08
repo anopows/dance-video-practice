@@ -15,27 +15,27 @@ def run(args, timeout=1200):
     result = subprocess.run(args, capture_output=True, timeout=timeout)
     if result.returncode:
         sys.stderr.write(result.stderr.decode(errors="replace")[-4000:])
-        raise InvalidVideo("The video could not be fully decoded. Try exporting it as MP4 and uploading again.")
+        raise InvalidVideo("This video couldn't be read all the way through. Export it as an MP4 and try again.")
     return result.stdout
 
 
 def inspect(path):
     if not 0 < Path(path).stat().st_size <= 500_000_000:
-        raise InvalidVideo("Video must be between 1 byte and 500 MB.")
+        raise InvalidVideo("Videos must be under 500 MB.")
     data = json.loads(run(["ffprobe", "-v", "error", "-protocol_whitelist", "file,pipe",
         "-show_format", "-show_streams", "-of", "json", str(path)], timeout=30))
     formats = set(data.get("format", {}).get("format_name", "").split(","))
     if not formats & {"mov", "mp4", "matroska", "webm"}:
-        raise InvalidVideo("Choose a real MP4, MOV, M4V or WebM video.")
+        raise InvalidVideo("This doesn't look like a video file. Use MP4, MOV, M4V or WebM.")
     videos = [s for s in data.get("streams", []) if s.get("codec_type") == "video" and not s.get("disposition", {}).get("attached_pic")]
     audios = [s for s in data.get("streams", []) if s.get("codec_type") == "audio"]
     if len(videos) != 1 or not audios:
-        raise InvalidVideo("The file must contain one video track and an audio track with music.")
+        raise InvalidVideo("The video needs a picture and an audio track with music.")
     video, audio = videos[0], audios[0]
     if video.get("codec_name") not in {"h264", "hevc", "vp8", "vp9", "av1", "mpeg4", "prores", "mjpeg"}:
-        raise InvalidVideo("This video codec is not supported. Export as H.264 MP4.")
+        raise InvalidVideo("five·six can't read this video's format. Export it as an H.264 MP4 and try again.")
     if audio.get("codec_name") not in {"aac", "mp3", "opus", "vorbis", "alac", "flac", "pcm_s16le", "pcm_s24le", "pcm_s32le", "pcm_f32le", "pcm_s16be", "pcm_s24be"}:
-        raise InvalidVideo("This audio codec is not supported. Export with AAC audio.")
+        raise InvalidVideo("five·six can't read this video's sound. Export it with AAC audio and try again.")
     try:
         duration = float(data["format"]["duration"])
         width, height = int(video["width"]), int(video["height"])
@@ -44,15 +44,15 @@ def inspect(path):
         start = float(video.get("start_time", 0))
         rate, channels = int(audio["sample_rate"]), int(audio["channels"])
     except (ValueError, KeyError, ZeroDivisionError):
-        raise InvalidVideo("Video metadata is incomplete or malformed.")
+        raise InvalidVideo("This video file is incomplete or damaged. Export it again and retry.")
     if not math.isfinite(duration) or not 1 <= duration <= 600:
-        raise InvalidVideo("Choose a video between 1 second and 10 minutes long.")
+        raise InvalidVideo("Videos must be between 1 second and 10 minutes long.")
     if not 0 < width <= 4096 or not 0 < height <= 4096 or width*height > 4096*2160:
-        raise InvalidVideo("Video must be 4K or smaller, including portrait video.")
+        raise InvalidVideo("Videos must be 4K or smaller.")
     if not 0 < fps <= 120 or not 0 < peak_fps <= 120:
-        raise InvalidVideo("Video frame rate must be between 1 and 120 fps.")
+        raise InvalidVideo("Videos must be between 1 and 120 frames per second.")
     if not 8000 <= rate <= 192000 or not 1 <= channels <= 8 or not math.isfinite(start):
-        raise InvalidVideo("Audio format is outside the supported limits.")
+        raise InvalidVideo("This video's sound format isn't supported. Export it with standard AAC audio.")
     return {"duration": duration, "width": width, "height": height, "fps": fps,
             "start": start, "videoIndex": video["index"], "audioIndex": audio["index"]}
 

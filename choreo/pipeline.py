@@ -15,8 +15,15 @@ def write(path, data):
     tmp.replace(path)
 
 
-def stage(folder, text):
-    write(folder/"progress.json", {"stage": text})
+# The player shows four steps: upload/check, beat, one, slowmo. Sub-step
+# callbacks from the models keep the most recent step key.
+STEP = {"value": "check"}
+
+
+def stage(folder, text, step=None):
+    if step:
+        STEP["value"] = step
+    write(folder/"progress.json", {"stage": text, "step": STEP["value"]})
 
 
 def analyze(folder, models):
@@ -32,7 +39,7 @@ def analyze(folder, models):
     torch.set_num_threads(3)
     torch.set_num_interop_threads(1)
     source = folder/"original"
-    stage(folder, "Validating and preparing video")
+    stage(folder, "Validating and preparing video", "check")
     info = inspect(source)
     normalize(source, folder/"practice.mp4", info)
     actual = inspect(folder/"practice.mp4")
@@ -44,18 +51,18 @@ def analyze(folder, models):
     stereo, sr = sf.read(folder/"audio.wav", dtype="float32", always_2d=True)
     y = librosa.resample(stereo.mean(axis=1), orig_sr=sr, target_sr=22050)
     if float(np.sqrt(np.mean(y*y))) < .0001:
-        raise InvalidVideo("The audio is silent or too quiet to find a reliable count. Try a clip with clearer music.")
-    stage(folder, "Finding music beats")
+        raise InvalidVideo("The music is too quiet to count. Try a clip where the music is clearly audible.")
+    stage(folder, "Finding music beats", "beat")
     beat_model = Audio2Beats(checkpoint_path=str(models/"beat_this-final0.ckpt"), device="cpu", dbn=False)
     result = detect(beat_model, y, 22050, duration, lambda text:stage(folder,text))
     del beat_model
     gc.collect()
     if result is None:
-        raise InvalidVideo("Could not find enough consistent music beats. Try a longer clip with clearer music.")
+        raise InvalidVideo("No steady beat was found. Try a longer clip with clearer music.")
     grid, count_quality, beats, downbeats = result
     f = functions()
     fixed, bars = f["fixed_bars"](grid, duration)
-    stage(folder, "Choosing the starting eight-count")
+    stage(folder, "Choosing the starting eight-count", "one")
     phase_model, ns = model(models)
     analysis_rate=count_quality['analysisRate']
     phase_audio=y if analysis_rate==1 else librosa.resample(y,orig_sr=22050*analysis_rate,target_sr=22050)
@@ -113,7 +120,7 @@ def analyze(folder, models):
     events, timing_quality = select_clock(acoustic, arrays, pulse_slots(grid, beats, duration), duration,
                                            lambda text:stage(folder,text))
     if not events:
-        raise InvalidVideo("Could not find a usable count sequence in this clip.")
+        raise InvalidVideo("The counts couldn't be worked out for this clip. Try a longer clip with clearer music.")
     with source.open("rb") as stream:
         source_hash = hashlib.file_digest(stream, "sha256").hexdigest()
     labels = {k: k.title()+" estimate" for k in ("bass", "drums", "piano", "guitar")}
@@ -129,6 +136,7 @@ def analyze(folder, models):
         "pipeline": "robust-grid-pulse-consensus-v3", "audioAlignment": "Analyzed the exact normalized playback audio, including leading silence.",
         "soloInstruments": ["bass", "drums", "piano", "guitar"]}
     from .slow_audio import prepare_playback
+    stage(folder, "Preparing slow-motion audio", "slowmo")
     data["slowPlayback"] = prepare_playback(folder/"practice.mp4", folder, data, lambda text:stage(folder,text))
     write(folder/"analysis.json", data)
     stage(folder, "Saving your practice room")
@@ -150,7 +158,7 @@ def main():
         write(folder/"error.json", {"message": str(e), "validation": True})
         sys.exit(2)
     except Exception:
-        write(folder/"error.json", {"message": "Processing failed. Please try a different clip or contact the room owner.", "validation": False})
+        write(folder/"error.json", {"message": "Something went wrong with this video. Try again, or ask the person who runs this site.", "validation": False})
         raise
 
 

@@ -1,9 +1,98 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#131714"><title>Choreo · Videos</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/static/room.css?v=5"><script defer src="/static/room.js?v=5"></script><script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script></head>
-<body><main class="home"><nav><a class="brand" href="/">choreo<span>practice</span></a><button id="logout" hidden>Lock</button></nav>
-<section class="panel" id="unlock"><h1>Upload a video</h1><form id="login-form"><label class="field">Password<input id="password" name="password" type="password" autocomplete="current-password" required maxlength="128"></label><div id="login-check" class="human-check"></div><button class="primary wide" id="login-submit" disabled>Continue</button></form><p class="small muted">Practice links open without a password.</p></section>
-<section id="upload-panel" hidden><label class="dropzone" id="dropzone"><strong>＋ Add a video</strong><input id="file" type="file" accept=".mp4,.mov,.m4v,.webm" aria-label="Choose a dance video"></label><p id="retention-note" class="small muted">Up to 500 MB / 10 min · Kept for 90 days.</p><div id="upload-actions" hidden><p id="file-info" aria-live="polite"></p><div id="upload-check" class="human-check"></div><button class="primary wide" id="upload" disabled>Add counts</button></div></section>
-<section id="progress-panel" class="panel" hidden><h2 id="progress-title">Uploading…</h2><progress id="progress" max="100" value="0" aria-label="Upload progress"></progress><p id="progress-detail" class="muted" aria-live="polite"></p><button id="resume" hidden>Resume</button><button id="cancel">Cancel</button></section>
-<p id="message" role="alert" hidden></p>
-<section id="library" hidden><h1>Your videos</h1><div id="projects"></div></section>
-</main></body></html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0C0C0E"><title>five·six</title><meta name="description" content="Counts on every dance video: automatic 1–8 counts, slow-mo that keeps the pitch, and repeat."><link rel="icon" href="data:,"><link rel="stylesheet" href="/static/ui.css?v=6"><link rel="stylesheet" href="/static/room.css?v=6"><script defer src="/static/room.js?v=6"></script><script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script></head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.8" fill="currentColor"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><circle cx="19" cy="12" r="1.8" fill="currentColor"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+  <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 15V4m0 0L8 8m4-4l4 4M6 12v6a2 2 0 002 2h8a2 2 0 002-2v-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+<main class="home">
+<nav class="top"><a class="logo" href="/">five<i>·</i>six</a><button id="signout" class="link quiet" hidden>Sign out</button></nav>
+
+<section id="welcome" class="view" hidden>
+  <h1 class="hero">Counts on every dance <i>video.</i></h1>
+  <p class="lead">Add a practice clip. five·six finds the beat, numbers it 1 to 8, and slows it down so the music still sounds like music.</p>
+  <div class="strip demo" aria-hidden="true"><div class="c one">1</div><div class="c l1">2</div><div class="c">3</div><div class="c l2">4</div><div class="c on">5</div><div class="c l1">6</div><div class="c">7</div><div class="c l3">8</div></div>
+  <ul class="feat">
+    <li><span>1–8</span>Counts under the video, with the 4 and 8 marked</li>
+    <li><span>25%</span>Slow-mo that keeps the pitch</li>
+    <li><span>↻</span>Repeat any eight until it sticks</li>
+    <li><span>↓</span>Download with the counts on</li>
+  </ul>
+  <button id="start" class="btn brass wide">Add a video</button>
+  <p class="foot">Got a link from someone? Just open it. No sign-in needed.</p>
+</section>
+
+<section id="unlock" class="view narrow" hidden>
+  <h1 class="h1">Enter the upload password</h1>
+  <p class="lead">You only need it to add or delete videos. Ask the person who runs this site.</p>
+  <form id="login-form">
+    <label class="lbl" for="password">Password</label>
+    <input id="password" class="field" name="password" type="password" autocomplete="current-password" required maxlength="128">
+    <div id="login-check" class="human-check"></div>
+    <button class="btn brass wide" id="login-submit" disabled>Unlock</button>
+  </form>
+  <p class="foot" id="unlock-note"></p>
+  <button id="unlock-back" class="link quiet center">Back</button>
+</section>
+
+<section id="library" class="view" hidden>
+  <header class="lib-h"><h1 class="h1">Your videos</h1><label class="btn brass small" for="file"><svg class="i" style="width:15px;height:15px"><use href="#i-plus"/></svg>Add video</label></header>
+  <div id="projects" class="cards" aria-live="polite"></div>
+  <label class="drop" id="dropzone" for="file"><b>Drop a video here</b><small id="limits">MP4, MOV or WebM · up to 500 MB and 10 min · kept 90 days</small></label>
+</section>
+
+<section id="progress" class="view narrow" hidden>
+  <div class="prog-head"><b id="progress-name"></b><small id="progress-meta"></small></div>
+  <h1 class="h1">Getting your counts ready</h1>
+  <ol class="stepper" id="stepper">
+    <li data-step="upload"><i aria-hidden="true"></i><div>Uploading<small></small></div></li>
+    <li data-step="beat"><i aria-hidden="true"></i><div>Hearing the beat<small></small></div></li>
+    <li data-step="one"><i aria-hidden="true"></i><div>Finding the 1<small></small></div></li>
+    <li data-step="slowmo"><i aria-hidden="true"></i><div>Preparing slow-mo<small></small></div></li>
+  </ol>
+  <p id="progress-note" class="lead small"></p>
+  <div class="actions"><button id="cancel" class="btn ghost">Cancel</button><label id="resume" class="btn light" for="file" hidden>Choose file</label></div>
+  <button id="progress-back" class="link quiet center">Back to videos</button>
+</section>
+
+<p id="message" class="message" role="alert" hidden></p>
+</main>
+<input id="file" class="sr-only" type="file" accept=".mp4,.mov,.m4v,.webm,video/mp4,video/quicktime,video/webm" aria-label="Choose a dance video" tabindex="-1">
+
+<dialog id="card-sheet" class="sheet" aria-labelledby="card-title">
+  <div class="grab"></div>
+  <div class="sh-head"><h2 id="card-title"></h2></div>
+  <button class="row" id="card-share"><span class="ri"><svg class="i"><use href="#i-share"/></svg></span><span class="t"><b>Copy share link</b><small>Anyone with the link can watch and download</small></span></button>
+  <button class="row" id="card-rename"><span class="ri"><svg class="i"><use href="#i-pen"/></svg></span><span class="t"><b>Rename</b></span></button>
+  <button class="row danger" id="card-delete"><span class="ri"><svg class="i"><use href="#i-trash"/></svg></span><span class="t"><b>Delete video</b></span></button>
+</dialog>
+
+<dialog id="rename-sheet" class="sheet" aria-labelledby="rename-title">
+  <div class="grab"></div>
+  <div class="sh-head"><h2 id="rename-title">Rename video</h2></div>
+  <form id="rename-form"><input id="rename-input" class="field" maxlength="80" required aria-label="Video name">
+  <p id="rename-error" class="help err" hidden></p>
+  <div class="actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn light">Save</button></div></form>
+</dialog>
+
+<dialog id="delete-sheet" class="sheet" aria-labelledby="delete-title">
+  <div class="grab"></div>
+  <div class="sh-head"><h2 id="delete-title"></h2></div>
+  <p>The video, its counts and downloads are removed for everyone with the link. This can't be undone.</p>
+  <p id="delete-error" class="help err" hidden></p>
+  <div class="actions"><button class="btn ghost" data-close>Keep</button><button id="confirm-delete" class="btn danger">Delete</button></div>
+</dialog>
+
+<dialog id="error-sheet" class="sheet" aria-labelledby="error-title">
+  <div class="grab"></div>
+  <div class="sh-head"><h2 id="error-title"></h2></div>
+  <p id="error-text"></p>
+  <div class="actions"><button class="btn ghost" data-close>Close</button><button id="error-delete" class="btn">Remove from list</button></div>
+</dialog>
+
+<div id="toast" class="toast" role="status" hidden></div>
+</body></html>
