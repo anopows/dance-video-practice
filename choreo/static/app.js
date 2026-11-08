@@ -253,7 +253,7 @@
       b.disabled=!available;b.setAttribute('aria-checked',String(state.listen===key));if(!available)missing.push(NAMES[key]);
     }
     $('solo-missing').hidden=!missing.length;
-    $('solo-missing').textContent=missing.length===1?`${missing[0]} isn't available for this video.`:`${missing.slice(0,-1).join(', ')} and ${missing.at(-1).toLowerCase()} aren't available for this video.`;
+    $('solo-missing').textContent=!missing.length?'':missing.length===1?`${missing[0]} isn't available for this video.`:`${missing.slice(0,-1).join(', ')} and ${missing.at(-1).toLowerCase()} aren't available for this video.`;
     $('solo-tag').hidden=state.listen==='mix';$('solo-tag').textContent=`${NAMES[state.listen].toUpperCase()} ONLY`;
   }
   for(const b of document.querySelectorAll('[data-listen]'))b.addEventListener('click',()=>{state.listen=b.dataset.listen;updateSolo();changeSource();});
