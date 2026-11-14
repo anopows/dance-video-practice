@@ -142,5 +142,3 @@ def opening_start(analysis, slots, dt, energy_dt):
     for i in range(opening):
         if evidence[i] and sum(evidence[i:i+3])>=2:return i
     return opening
-
-
