@@ -75,3 +75,7 @@ replacing their environment values and restarting both services.
 Smoke scripts accept only explicit synthetic fixtures and exercise storage,
 worker, signed playback, and exports. Run them as `choreo` with the production
 EnvironmentFile. They do not bypass HTTP login or replace browser upload tests.
+
+## KPI counters
+
+The application records aggregate UTC daily counts and daily pseudonymous distinct-visitor hashes in its own SQLite database. The hashes are pruned by the worker cleanup loop and never appear in exports. No access logs are enabled. The app's KPI timer runs its exporter as the application user and writes its JSON under `/var/lib/kpi/data/`; see the separate KPI repository for metric meanings, deployment and how to add fixed metric names. Existing database backups include the counters. Exported counts are best effort and are not an audit log.

@@ -1,6 +1,8 @@
 import contextlib
 import sqlite3
 
+from . import kpi
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (hash TEXT PRIMARY KEY, csrf TEXT NOT NULL, expires REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS requests (bucket TEXT NOT NULL, stamp REAL NOT NULL);
@@ -32,6 +34,7 @@ class Database:
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         with self.connect() as db:
             db.executescript(SCHEMA)
+            kpi.init(db)
 
     @contextlib.contextmanager
     def connect(self, write=False):
@@ -49,3 +52,22 @@ class Database:
         finally:
             db.close()
 
+
+
+def kpi_count(con, fn, *args, **kwargs):
+    try:
+        con.execute('SAVEPOINT kpi_count')
+        fn(con, *args, **kwargs)
+        con.execute('RELEASE kpi_count')
+    except Exception:
+        try:
+            con.execute('ROLLBACK TO kpi_count'); con.execute('RELEASE kpi_count')
+        except Exception: pass
+
+def best_count(db, fn, *args):
+    try:
+        con = sqlite3.connect(db.path, timeout=0.05)
+        try:
+            fn(con, *args); con.commit()
+        finally: con.close()
+    except Exception: pass

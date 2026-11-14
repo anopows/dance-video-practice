@@ -22,7 +22,9 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from .config import settings
-from .db import Database
+from .limits import EXPORT_QUEUE_LIMIT
+from .db import Database, kpi_count, best_count
+from . import kpi
 from .storage import Storage
 from .slow_audio import SLOW_MEDIA, ENGINE as SLOW_ENGINE
 
@@ -198,8 +200,13 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
                     rate(con, "api:"+ip(request), 240, 60, time.time())
                     rate(con, "api:global", 1200, 60, time.time())
             except HTTPException as e:
+                if e.status_code == 429: best_count(db, kpi.bump, 'http.429')
                 return JSONResponse({"detail": e.detail}, status_code=e.status_code, headers=e.headers)
-        response = await call_next(request)
+        try: response = await call_next(request)
+        except Exception:
+            best_count(db, kpi.bump, 'http.5xx'); raise
+        if response.status_code == 429: best_count(db, kpi.bump, 'http.429')
+        elif response.status_code >= 500: best_count(db, kpi.bump, 'http.5xx')
         response.headers.update({
             "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
             "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY",
@@ -235,15 +242,20 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
         with db.connect(write=True) as con:
             rate(con, "login:"+ip(request), 5, 900, now, "Too many tries.")
             rate(con, "login:global", 30, 900, now, "Too many tries.")
-        await verify(body.token, "login")
+        try: await verify(body.token, "login")
+        except HTTPException as exc:
+            if exc.status_code == 400: best_count(db, kpi.bump, 'login.check_failed')
+            raise
         try:
             await run_in_threadpool(ph.verify, cfg.password_hash, body.password)
         except VerificationError:
+            best_count(db, kpi.bump, 'login.bad_password')
             raise HTTPException(401, "That password didn't work. Check it and try again.")
         token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
         with db.connect(write=True) as con:
             con.execute("DELETE FROM sessions WHERE expires<?", (now,))
             con.execute("INSERT INTO sessions VALUES (?,?,?)", (digest(token), csrf, now+cfg.session_seconds))
+            kpi_count(con, kpi.bump, 'login.ok')
         response.set_cookie(COOKIE, token, max_age=cfg.session_seconds, secure=cfg.cookie_secure,
                             httponly=True, samesite="strict", path="/")
         return {"csrf": csrf}
@@ -298,6 +310,8 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
                 # Keep reservations even on cancellation or validation failure.
                 con.execute("INSERT INTO projects (id,name,bytes,created,expires,upload_deadline,status,updated) VALUES (?,?,?,?,?,?,?,?)",
                     (body.request_id, display_name(Path(body.name).name, now), body.bytes, now, now+cfg.retention_seconds, now+cfg.upload_seconds, "creating", now))
+                kpi_count(con, kpi.bump, 'upload.reserved')
+                kpi_count(con, kpi.bump, 'upload.bytes', body.bytes)
             try:
                 upload_id = store.begin(body.request_id)
             except Exception:
@@ -307,7 +321,10 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
             with db.connect(write=True) as con:
                 con.execute("UPDATE projects SET status='uploading',upload_id=? WHERE id=?", (upload_id, body.request_id))
             return {"id": body.request_id, "status": "uploading"}
-        return await run_in_threadpool(reserve)
+        try: return await run_in_threadpool(reserve)
+        except HTTPException as exc:
+            if exc.status_code == 429: best_count(db, kpi.bump, 'upload.rejected')
+            raise
 
     @app.get("/api/projects/{pid}")
     def status(pid: str, request: Request):
@@ -380,6 +397,7 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
                 raise HTTPException(400, "The uploaded file doesn't match. Add the video again.")
             now = time.time()
             con.execute("UPDATE projects SET status='queued',updated=? WHERE id=?", (now, pid))
+            kpi_count(con, kpi.bump, 'upload.completed')
             con.execute("INSERT OR IGNORE INTO jobs (id,project,kind,status,created,updated) VALUES (?,?,'analyze','queued',?,?)", (secrets.token_hex(16), pid, now, now))
         return {"id": pid, "status": "queued"}
 
@@ -389,6 +407,7 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
         with db.connect(write=True) as con:
             project(con, pid)
             con.execute("UPDATE projects SET status='deleted',cleanup_done=0,updated=? WHERE id=?", (time.time(), pid))
+            kpi_count(con, kpi.bump, 'project.deleted')
             con.execute("UPDATE jobs SET status='cancelled' WHERE project=? AND status='queued'", (pid,))
         return {"ok": True}
 
@@ -404,13 +423,16 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
         return {"name": name}
 
     @app.get("/api/projects/{pid}/practice")
-    def practice(pid: str, request: Request):
+    def practice(pid: str, request: Request, refresh: bool = False):
         # The unlisted, random 128-bit project URL grants access to this video.
         # Library enumeration, uploads, deletion and shared edits stay private.
         with db.connect() as con:
             row = project(con, pid)
         if row["status"] != "ready":
             raise HTTPException(409, "This video is still being prepared. Try again in a few minutes.")
+        if not refresh:
+            best_count(db, kpi.bump, 'practice.opened')
+            best_count(db, kpi.seen, 'uniq.practice', ip(request), cfg.password_hash)
         ttl = min(900, max(1, int(row["expires"]-time.time())))
         analysis = json.loads(row["analysis"])
         media = {"mix": store.url(f"projects/{pid}/practice.mp4", ttl)}
@@ -443,6 +465,7 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
             if value == json.loads(row["alignment"]):
                 return {"revision": row["revision"]}
             con.execute("UPDATE projects SET alignment=?,revision=revision+1 WHERE id=?", (json.dumps(value), pid))
+            kpi_count(con, kpi.bump, 'alignment.saved')
         return {"revision": body.revision+1}
 
     @app.post("/api/projects/{pid}/exports")
@@ -461,13 +484,15 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
             payload = json.dumps({"renderer": "counts-r3-v5", "revision": body.revision, "speed": body.speed, "settings": chosen}, sort_keys=True)
             old = con.execute("SELECT * FROM jobs WHERE project=? AND kind='export' AND payload=?", (pid, payload)).fetchone()
             if old:
+                kpi_count(con, kpi.bump, 'export.reused')
                 return {"id": old["id"], "status": old["status"]}
             rate(con, "exports:"+ip(request), 6, 3600, time.time())
             rate(con, "exports:room", 10, 3600, time.time())
-            if con.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','processing')").fetchone()[0] >= 4:
+            if con.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','processing')").fetchone()[0] >= EXPORT_QUEUE_LIMIT:
                 reject_limit(30, "Too many videos are being made right now. Try again in a few minutes.")
             jid, now = secrets.token_hex(16), time.time()
             con.execute("INSERT INTO jobs (id,project,kind,status,created,updated,payload) VALUES (?,?,'export','queued',?,?,?)", (jid, pid, now, now, payload))
+            kpi_count(con, kpi.bump, 'export.requested')
         return {"id": jid, "status": "queued"}
 
     def export_result(jid, pid=None):
@@ -492,10 +517,12 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
 
     @app.get("/")
     def index():
+        best_count(db, kpi.bump, 'page.home')
         return FileResponse(STATIC / "index.html")
 
     @app.get("/practice/{pid}")
     def player(pid: str):
+        best_count(db, kpi.bump, 'page.practice')
         return FileResponse(STATIC / "practice.html")
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")

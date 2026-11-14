@@ -58,7 +58,7 @@
     };
     // Signed media links last at most 15 minutes; refresh them before they lapse.
     async function refresh(){
-      const next=await api(`/api/projects/${pid}/practice`);
+      const next=await api(`/api/projects/${pid}/practice?refresh=1`);
       window.PRACTICE_MEDIA=next.mediaUrls;window.PRACTICE_SPEED_MEDIA=next.speedMedia||{};
       window.refreshRoomMedia?.();schedule(next.urlExpires);
     }

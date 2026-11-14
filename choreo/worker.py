@@ -11,7 +11,8 @@ import subprocess
 import time
 
 from .config import settings
-from .db import Database
+from .db import Database, kpi_count
+from . import kpi
 from .storage import Storage
 from .slow_audio import SLOW_MEDIA
 
@@ -62,8 +63,11 @@ class Worker:
     def cleanup(self):
         now = time.time()
         with self.db.connect(write=True) as con:
-            con.execute("UPDATE projects SET status='expired',cleanup_done=0 WHERE expires<=? AND status NOT IN ('deleted','expired')", (now,))
-            con.execute("UPDATE projects SET status='failed',error='This upload took too long and expired. Add the video again.' WHERE status IN ('uploading','creating','completing') AND upload_deadline<=?", (now,))
+            kpi_count(con,kpi.prune,now=now)
+            expired=con.execute("UPDATE projects SET status='expired',cleanup_done=0 WHERE expires<=? AND status NOT IN ('deleted','expired')", (now,)).rowcount
+            if expired: kpi_count(con,kpi.bump,'project.expired',expired)
+            abandoned=con.execute("UPDATE projects SET status='failed',error='This upload took too long and expired. Add the video again.' WHERE status IN ('uploading','creating','completing') AND upload_deadline<=?", (now,)).rowcount
+            if abandoned: kpi_count(con,kpi.bump,'upload.abandoned',abandoned)
             rows = con.execute("SELECT * FROM projects WHERE status IN ('deleted','expired','failed') AND cleanup_done=0").fetchall()
             con.execute("DELETE FROM requests WHERE stamp<?", (now-86400,))
             con.execute("DELETE FROM proofs WHERE stamp<?", (now-600,))
@@ -86,6 +90,10 @@ class Worker:
         # Called after obtaining an exclusive filesystem lock. There is no
         # surviving worker to race with; output uploads use deterministic keys.
         with self.db.connect(write=True) as con:
+            rows=con.execute("SELECT kind, CASE WHEN attempt<2 THEN 'retried' ELSE 'failed' END AS outcome, count(*) AS n FROM jobs WHERE status='processing' GROUP BY kind, outcome").fetchall()
+            for row in rows:
+                if row['kind'] in ('analyze','export'):
+                    kpi_count(con,kpi.bump,'job.'+row['kind']+'.'+row['outcome'],row['n'])
             con.execute("UPDATE jobs SET status='queued' WHERE status='processing' AND attempt<2")
             con.execute("UPDATE jobs SET status='failed',error='Processing stopped twice on this video. Try a shorter clip or a different file.' WHERE status='processing'")
             con.execute("UPDATE projects SET status='queued' WHERE status='processing' AND id IN (SELECT project FROM jobs WHERE kind='analyze' AND status='queued')")
@@ -100,11 +108,14 @@ class Worker:
             if not job:
                 return None
             con.execute("UPDATE jobs SET status='processing',attempt=attempt+1,updated=? WHERE id=?", (time.time(), job["id"]))
+            if job['attempt'] == 0:
+                kpi_count(con,kpi.observe,'queue_s',max(0,time.time()-job['created']))
             if job["kind"] == "analyze":
                 con.execute("UPDATE projects SET status='processing',updated=?,stage='check' WHERE id=?", (time.time(), job["project"]))
             return dict(job)
 
     def process(self, job):
+        process_started = time.monotonic()
         folder = self.jobs/job["id"]
         folder.mkdir(mode=0o700, exist_ok=True)
         process = None
@@ -161,11 +172,15 @@ class Worker:
                 with self.db.connect(write=True) as con:
                     con.execute("UPDATE projects SET status='ready',analysis=?,error=NULL,stage=NULL,updated=? WHERE id=? AND status='processing' AND expires>?", (json.dumps(analysis, allow_nan=False), time.time(), p["id"], time.time()))
                     con.execute("UPDATE jobs SET status='ready',updated=? WHERE id=?", (time.time(), job["id"]))
+                    kpi_count(con,kpi.bump,'job.analyze.ready')
+                    kpi_count(con,kpi.observe,'analyze_s',time.monotonic()-process_started)
             else:
                 key = prefix+f"exports/{job['id']}.mp4"
                 self.store.upload(key, folder/"export.mp4", "video/mp4")
                 with self.db.connect(write=True) as con:
                     con.execute("UPDATE jobs SET status='ready',object_key=?,updated=? WHERE id=?", (key, time.time(), job["id"]))
+                    kpi_count(con,kpi.bump,'job.export.ready')
+                    kpi_count(con,kpi.observe,'export_s',time.monotonic()-process_started)
         except Exception:
             if process:
                 stop(process)
@@ -177,6 +192,8 @@ class Worker:
             retry = not validation and job["attempt"] < 1
             with self.db.connect(write=True) as con:
                 con.execute("UPDATE jobs SET status=?,error=?,updated=? WHERE id=?", ("queued" if retry else "failed", error, time.time(), job["id"]))
+                if job['kind'] in ('analyze','export'):
+                    kpi_count(con,kpi.bump,'job.'+job['kind']+('.retried' if retry else '.failed'))
                 if job["kind"] == "analyze":
                     con.execute("UPDATE projects SET status=?,error=?,updated=? WHERE id=? AND status='processing'", ("queued" if retry else "failed", error, time.time(), job["project"]))
             LOG.exception("Job %s did not complete", job["id"])
