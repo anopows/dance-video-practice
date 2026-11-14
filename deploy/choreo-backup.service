@@ -1,0 +1,20 @@
+[Unit]
+Description=choreo backup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=choreo
+Group=choreo
+WorkingDirectory=/opt/choreo
+EnvironmentFile=/etc/choreo.env
+EnvironmentFile=/etc/choreo-backup.env
+ExecStart=/opt/choreo/deploy/backup.sh
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/choreo
+TimeoutStartSec=900

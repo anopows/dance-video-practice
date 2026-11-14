@@ -28,6 +28,12 @@ test('frame stepping matches the normalized 30 fps video',()=>{
   assert.ok(Math.abs(C.frameTarget(1,1,30)-31/30)<1e-10);
   assert.equal(C.frameTarget(0,-1,30),0);
 });
+test('a new attack analysis invalidates an old attack offset on the same grid',()=>{
+  const settings={sourceSha256:'source',gridId:'grid',timingId:'old-attack',timingMode:'attack',anchor:0,offset:-.04,reviewed:true};
+  assert.equal(C.validateSettings(settings,data),null);
+  assert.deepEqual(C.validateSettings({...settings,timingId:'attack'},data),{anchor:0,offset:-.04,reviewed:true});
+  assert.deepEqual(C.validateSettings({...settings,timingMode:'steady'},data),{anchor:0,offset:-.04,reviewed:true});
+});
 test('repeat keeps its beats when the counts are nudged or restyled',()=>{
   const first=C.repeatStart(data,events[13].time,0,0,'attack');
   assert.equal(first,8);

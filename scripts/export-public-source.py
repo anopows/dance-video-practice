@@ -31,7 +31,9 @@ for directory, suffixes in {"choreo": {".py", ".js", ".css", ".html", ".json"},
                            "tests": {".py", ".cjs"}, "scripts": {".py", ".sh"}}.items():
     paths += [str(p.relative_to(ROOT)) for p in (ROOT/directory).rglob("*")
               if p.is_file() and p.suffix in suffixes and "__pycache__" not in p.parts]
-for name in sorted(paths):
+paths += ['choreo/data/disposable_domains.txt','choreo/data/DISPOSABLE_DOMAINS_LICENSE.txt','choreo/data/DISPOSABLE_DOMAINS_SOURCE.json']
+paths += [str(p.relative_to(ROOT)) for p in (ROOT/'deploy').rglob('*') if p.is_file() and p.suffix in {'.sh','.service','.timer','.md','.html'}]
+for name in sorted(set(paths)):
     src, dest = ROOT/name, target/name
     if src.is_symlink():
         raise SystemExit(f"Refusing symbolic link: {name}")

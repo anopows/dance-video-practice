@@ -21,3 +21,7 @@ with demucs.open('rb') as f:
 if sha != '34c22ccb381c6f9fdbf324f04e1e2fe21aaaf293f5ded163a162697ff9a02ddd':
     raise SystemExit('Demucs checkpoint verification failed')
 print('Verified Beat This!, hypermeter code and weights, and Demucs checkpoint.')
+
+for name,sha in manifest['nsfw']['files'].items():verify(root/'nsfw'/name,sha)
+verify(root/'torch/hub/checkpoints'/manifest['person']['file'],manifest['person']['sha256'])
+print('Verified pinned NSFW classifier and person detector.')

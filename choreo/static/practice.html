@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0C0C0E"><title>five·six</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/static/ui.css?v=6"><link rel="stylesheet" href="/static/practice.css?v=6"><script defer src="/static/core.js?v=6"></script><script defer src="/static/playback.js?v=6"></script><script defer src="/static/practice-loader.js?v=6"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0C0C0E"><title>five·six</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/static/ui.css?v=7"><link rel="stylesheet" href="/static/practice.css?v=7"><script defer src="/static/core.js?v=7"></script><script defer src="/static/playback.js?v=7"></script><script defer src="/static/practice-loader.js?v=7"></script><script defer src="/static/report.js?v=7"></script><script async defer src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"></script></head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
@@ -63,8 +63,9 @@
   <button class="row" id="frame-mode" role="switch" aria-checked="false"><span class="ri"><svg class="i"><use href="#i-frame"/></svg></span><span class="t"><b>Step by frame</b><small>Arrows move one frame, not one beat</small></span><span class="switch" aria-hidden="true"></span></button>
   <button class="row owner-only" data-open="rename-sheet" hidden><span class="ri"><svg class="i"><use href="#i-pen"/></svg></span><span class="t"><b>Rename</b></span></button>
   <button class="row danger owner-only" data-open="delete-sheet" hidden><span class="ri"><svg class="i"><use href="#i-trash"/></svg></span><span class="t"><b>Delete video</b></span></button>
-</dialog>
+<button class="row" id="report-open" data-open="report-sheet">Report this video</button><footer class="foot" id="player-legal" hidden><a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/legal">Legal notice and contact</a></footer></dialog>
 
+<dialog id="report-sheet" class="sheet" aria-labelledby="report-title"><h2 id="report-title">Report this video</h2><form id="report-form"><fieldset><legend>Reason</legend><label><input type="radio" name="reason" value="illegal" required> Illegal content</label><br><label><input type="radio" name="reason" value="copyright"> Copyright</label><br><label><input type="radio" name="reason" value="privacy"> I'm in this video and want it removed</label><br><label><input type="radio" name="reason" value="other"> Something else</label></fieldset><label for="report-details">What's wrong?</label><textarea id="report-details" class="field" maxlength="1500" required></textarea><label for="report-contact">Your email, so we can reply</label><input id="report-contact" class="field" type="email" maxlength="254" autocomplete="email"><div id="report-check"></div><p id="report-message" role="status"></p><button type="button" class="btn ghost" data-close>Close</button><button id="report-send" class="btn brass" disabled>Send report</button></form></dialog>
 <dialog id="fix-sheet" class="sheet docked" aria-labelledby="fix-title">
   <div class="sh-head"><h2 id="fix-title">Fix the counts</h2><button class="link" data-close>Done</button></div>
   <p class="fix-hint">Play the music. When you hear the 1, tap the button.</p>

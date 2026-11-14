@@ -36,3 +36,9 @@ This release contains no dependency binaries or model weights. If packaging a
 complete runtime, preserve upstream notices and meet applicable source and
 distribution requirements. Versions are in `pyproject.toml` and `uv.lock`;
 consult each upstream project for its full license.
+
+## Public-launch screening models
+
+Falconsai/nsfw_image_detection: Apache-2.0, revision 96cb0d0342c7afb80cab76ecc58b265fa44da256. Model card: https://huggingface.co/Falconsai/nsfw_image_detection/tree/96cb0d0342c7afb80cab76ecc58b265fa44da256. Files and SHA-256 hashes are recorded in research/model-manifest.json. Transformers is Apache-2.0.
+
+Torchvision SSDlite320 MobileNet V3 Large COCO_V1: torchvision code is BSD-3-Clause; pretrained detector supplied by PyTorch, trained on COCO. The COCO dataset has its own image licensing terms. Source: https://pytorch.org/vision/0.20/models/generated/torchvision.models.detection.ssdlite320_mobilenet_v3_large.html. No training dataset or model weights are redistributed in this repository.

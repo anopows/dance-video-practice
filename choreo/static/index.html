@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0C0C0E"><title>five·six</title><meta name="description" content="Counts on every dance video: automatic 1–8 counts, slow-mo that keeps the pitch, and repeat."><link rel="icon" href="data:,"><link rel="stylesheet" href="/static/ui.css?v=6"><link rel="stylesheet" href="/static/room.css?v=6"><script defer src="/static/room.js?v=6"></script><script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0C0C0E"><title>five·six</title><meta name="description" content="Counts on every dance video: automatic 1–8 counts, slow-mo that keeps the pitch, and repeat."><link rel="icon" href="data:,"><link rel="stylesheet" href="/static/ui.css?v=7"><link rel="stylesheet" href="/static/room.css?v=7"><script defer src="/static/room.js?v=7"></script><script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script></head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.8" fill="currentColor"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><circle cx="19" cy="12" r="1.8" fill="currentColor"/></symbol>
@@ -27,21 +27,18 @@
 </section>
 
 <section id="unlock" class="view narrow" hidden>
-  <h1 class="h1">Enter the upload password</h1>
-  <p class="lead">You only need it to add or delete videos. Ask the person who runs this site.</p>
-  <form id="login-form">
-    <label class="lbl" for="password">Password</label>
-    <input id="password" class="field" name="password" type="password" autocomplete="current-password" required maxlength="128">
-    <div id="login-check" class="human-check"></div>
-    <button class="btn brass wide" id="login-submit" disabled>Unlock</button>
-  </form>
-  <p class="foot" id="unlock-note"></p>
-  <button id="unlock-back" class="link quiet center">Back</button>
-</section>
+<h1 class="h1">Sign in to add videos</h1><p class="lead">Free while five·six is in early access.</p>
+<p id="signin-notice" role="status"></p><div id="signin-controls">
+<label><input id="consent" type="checkbox"> I am 16 or older and agree to the <a href="/terms" target="_blank" rel="noopener">Terms</a> and <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>.</label>
+<button id="google-signin" class="btn light wide" disabled hidden>Continue with Google</button><p id="signin-or" class="foot" hidden>or</p>
+<form id="login-form" hidden><label class="lbl" for="email">Email</label><input id="email" class="field" type="email" autocomplete="email" maxlength="254" required>
+<div id="login-check" class="human-check"></div><button class="btn brass wide" id="login-submit" disabled>Email me a sign-in link</button></form></div>
+<p id="email-sent" role="status" hidden></p><button id="different-email" class="link quiet" hidden>Use a different address</button>
+<p class="foot" id="unlock-note"></p><button id="unlock-back" class="link quiet center">Back</button></section>
 
 <section id="library" class="view" hidden>
   <header class="lib-h"><h1 class="h1">Your videos</h1><label class="btn brass small" for="file"><svg class="i" style="width:15px;height:15px"><use href="#i-plus"/></svg>Add video</label></header>
-  <div id="projects" class="cards" aria-live="polite"></div>
+  <p id="upload-banner" class="message" hidden></p><div id="projects" class="cards" aria-live="polite"></div>
   <label class="drop" id="dropzone" for="file"><b>Drop a video here</b><small id="limits">MP4, MOV or WebM · up to 500 MB and 10 min · kept 90 days</small></label>
 </section>
 
@@ -59,6 +56,7 @@
   <button id="progress-back" class="link quiet center">Back to videos</button>
 </section>
 
+<footer class="foot" id="legal-footer" hidden><a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/legal">Legal notice and contact</a></footer>
 <p id="message" class="message" role="alert" hidden></p>
 </main>
 <input id="file" class="sr-only" type="file" accept=".mp4,.mov,.m4v,.webm,video/mp4,video/quicktime,video/webm" aria-label="Choose a dance video" tabindex="-1">
@@ -94,5 +92,8 @@
   <div class="actions"><button class="btn ghost" data-close>Close</button><button id="error-delete" class="btn">Remove from list</button></div>
 </dialog>
 
+<dialog id="account-sheet" class="sheet" aria-labelledby="account-title"><h2 id="account-title"></h2><p id="account-quota"></p><a id="admin-link" class="btn" href="/admin" hidden>Admin</a><button id="account-signout" class="btn">Sign out</button><button id="account-delete" class="btn danger">Delete account…</button><button class="btn ghost" data-close>Close</button></dialog>
+<dialog id="account-delete-sheet" class="sheet" aria-labelledby="account-delete-title"><h2 id="account-delete-title">Delete account</h2><p>This deletes your account and all your videos, for everyone who has their links. This can't be undone. Content under a preservation hold stays restricted pending review.</p><label for="confirm-email">Type your email to confirm</label><input id="confirm-email" type="email" class="field"><p id="account-error" role="alert"></p><button class="btn ghost" data-close>Keep account</button><button id="confirm-account-delete" class="btn danger" disabled>Delete account</button></dialog>
+<dialog id="terms-sheet" class="sheet" aria-labelledby="terms-title"><h2 id="terms-title">Our terms have changed.</h2><label><input id="terms-consent" type="checkbox"> I am 16 or older and agree to the <a href="/terms" target="_blank" rel="noopener">Terms</a> and <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>.</label><p id="terms-error" role="alert"></p><button id="terms-continue" class="btn brass" disabled>Continue</button><button id="terms-signout" class="btn ghost">Sign out</button></dialog>
 <div id="toast" class="toast" role="status" hidden></div>
 </body></html>

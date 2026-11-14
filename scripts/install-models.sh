@@ -14,5 +14,6 @@ if [ ! -d /var/lib/choreo/models/hypermeter-source/.git ]; then
 fi
 git -C /var/lib/choreo/models/hypermeter-source checkout bdabe679a9a5a5900dba56666b535af734e646b7
 TORCH_HOME=/var/lib/choreo/models/torch .venv/bin/python -c 'from demucs.pretrained import get_model; get_model("htdemucs_6s")'
+.venv/bin/python scripts/install-screen-models.py
 .venv/bin/python scripts/check-models.py
 chmod -R a+rX /var/lib/choreo/models

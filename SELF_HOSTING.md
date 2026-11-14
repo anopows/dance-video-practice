@@ -1,13 +1,11 @@
 # Self-host five·six
 
-This single-room service uses Ubuntu for processing and a private Cloudflare R2
-bucket for temporary media. Link visitors do not sign in. The upload password
-grants upload and management of all room videos.
+This multi-user service uses Ubuntu and private Cloudflare R2 storage. Uploaders sign in by verified email or Google; each library belongs to its account. Share-link visitors need no account. The admin password is an additional check after account sign-in.
 
 ## Requirements
 
 - Ubuntu 24.04 x86-64, Python 3.12, systemd, and AppArmor.
-- At least 8 GB RAM, 3 CPU cores, and SSD storage for models and temporary media.
+- For the combined public launch: at least 16 GB RAM, 6 vCPU, 160 GB disk, and 20 TB included traffic, within the fixed $80/month host allowance.
   The worker requires 5 GB free before starting a job; allow substantially more
   for installation and long recordings.
 - A domain pointing directly to the host, inbound TCP 80/443, and outbound
@@ -47,8 +45,7 @@ sudo bash scripts/install-models.sh /path/to/tcn_audio_metrical_v1.0_crf.cp.sdic
 sudo .venv/bin/python scripts/check-models.py
 ```
 
-This downloads Beat This! final0, pinned hypermeter inference source, and Demucs
-htdemucs_6s. It verifies checkpoint and source hashes. The worker verifies them
+This downloads Beat This! final0, pinned hypermeter inference source, Demucs htdemucs_6s, the pinned NSFW classifier and person detector. It verifies checkpoint and source hashes. The worker verifies them
 again before starting. Models are not included in git. Do not substitute a
 similarly named checkpoint without reviewing the manifest.
 
@@ -62,7 +59,7 @@ sudo cp deploy/cloudflare-config.example.json deploy/cloudflare-config.json
 sudoedit deploy/cloudflare-config.json
 ```
 
-Use a dedicated bucket with public access disabled. Playback uses signed URLs.
+Use a dedicated bucket with public access disabled. Playback uses signed URLs on this application origin; the browser never receives R2 presigned URLs.
 The example sets object deletion to 90 days and aborts incomplete multipart
 uploads after one day. CORS allows GET/HEAD from your exact HTTPS origin.
 
@@ -88,10 +85,10 @@ Save it in root-only `/root/r2-credentials.json`:
 ## 4. Configure the application
 
 ```sh
-sudo .venv/bin/python scripts/configure-runtime.py /root/r2-credentials.json
+sudo .venv/bin/python scripts/configure-runtime.py /root/r2-credentials.json --account-config /root/account-config.json
 ```
 
-Enter your room password at the hidden prompt. The script hashes it with
+Create a root-only account-config JSON with admin_email, abuse_email and SMTP/Google settings from deploy/.env.example. Enter the admin step-up password at the hidden prompt. The script hashes it with
 Argon2id and writes validated settings to root-only `/etc/choreo.env`.
 Retention is `CHOREO_RETENTION_SECONDS=7776000` (90 days).
 `deploy/.env.example` documents required variables.
@@ -120,8 +117,8 @@ address instead of overwriting the existing setup.
 
 ## 6. Verify the complete flow
 
-1. Open the site and tap **Add a video**. Unlocking should require the upload
-   password and Turnstile; uploads after that need no second check.
+1. Open the site and tap **Add a video**. Test email-link confirmation and Google
+   sign-in. Uploads after sign-in need no second human check.
 2. Upload a short dance clip and wait for analysis.
 3. Test 100%, 50%, and 25% playback, seeking, **Repeat**, and **More → Fix the counts**.
 4. Copy **Share** and open it in a private browser window. Playback and 100%/25%
@@ -134,3 +131,7 @@ address instead of overwriting the existing setup.
 See [Operations](deploy/RUNBOOK.md) for updates, retention migration, backups,
 and troubleshooting. Automated tests do not validate your DNS, credentials,
 model downloads, or browser upload permissions.
+
+## Upgrading an existing room
+
+Follow `deploy/PUBLIC_LAUNCH.md`. Preserve the existing environment, secret key, R2 guard counters and password hash. Do not rerun configure-runtime.py over an existing install. Back up both SQLite databases before migrating; account migration assigns all prior videos to the admin and invalidates room sessions. Both sign-in methods, final legal content and calibration must be validated before public uploads open.
