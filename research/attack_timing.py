@@ -31,10 +31,15 @@ def attacks(y,reference_rms,source,offset=0):
         below=np.flatnonzero(rms[valley:peak+1]<=threshold)
         start=valley+int(below[-1])+1 if len(below) else valley
         time=start*step/SR+offset
+        bounds=[]
+        for fraction in (.08,.25):
+            below=np.flatnonzero(rms[valley:peak+1]<=floor+fraction*rise)
+            crossing=valley+int(below[-1])+1 if len(below) else valley
+            bounds.append(round(crossing*step/SR+offset,6))
         if result and time-result[-1]['time']<.035:continue
         strength=min(1.,float(env[frame])/peak_scale)
         result.append({'time':round(time,6),'source':source,'strength':round(strength,4),
-                       'levelDb':round(level,1),'peakTime':round(frame*HOP/SR+offset,6)})
+                       'levelDb':round(level,1),'censored':bool(start<=floor_at+1 or peak<=a+1 or peak>=z-2),'riseRange':bounds,'peakTime':round(frame*HOP/SR+offset,6)})
     return result
 
 

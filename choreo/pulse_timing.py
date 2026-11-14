@@ -18,7 +18,7 @@ METHOD_IDS=(0,2,3)
 WEIGHTS=(.06,.12,.24,.36)
 PRIOR_SHIFTS_MS=(-40,-20,0,20,40)
 MATCH_SECONDS=.04
-ALGORITHM='pulse-consensus-v3'
+ALGORITHM='pulse-onset-consensus-v6'
 
 def digest(path):
     with Path(path).open('rb') as handle:return hashlib.file_digest(handle,'sha256').hexdigest()
@@ -145,13 +145,14 @@ def refine_attack(t,index,priors,time_axis,lane_curves,energy,allowed):
     group=[c for c in candidates if c['score']>=best['score']*.75 and abs(c['time']-best['time'])<.035]
     return min(group,key=lambda c:c['time'])
 
-def analyze_signals(audio,feature_arrays,priors):
+def analyze_signals(audio,feature_arrays,priors,onset_index=None):
     lanes=tuple(audio)
     priors=np.asarray(priors,float)
     time_axis,curves=evidence_curves(feature_arrays)
     window=learned_window(np.mean([curves['mix',s,m] for s in SIZES for m in METHOD_IDS],axis=0),time_axis,priors)
     energy={lane:np.sqrt(np.maximum(0,uniform_filter1d(np.asarray(audio[lane],float)**2,size=529)))[::ESTEP] for lane in lanes}
-    runs=[];configs=[];details=[]
+    runs=[];configs=[];details=[];base_runs=[];base_details=[];base_configs=[]
+    periods=local_periods(priors)
     for sizes in ((1024,),(2048,),(1024,2048)):
         lane_curves={lane:np.mean([curves[lane,size,method] for size in sizes for method in METHOD_IDS],axis=0) for lane in lanes}
         for mode in ('mix','joint'):
@@ -160,24 +161,40 @@ def analyze_signals(audio,feature_arrays,priors):
             for weight in WEIGHTS:
                 peaks=pulse_path(acoustic,time_axis,priors,weight,window)
                 result=[refine_attack(t,i,priors,time_axis,lane_curves,energy,allowed) for i,t in enumerate(peaks)]
-                refined=np.array([r['time'] for r in result])
-                assert np.all(np.diff(refined)>0),'Pulse ownership must prevent reversed counts'
-                runs.append(refined);details.append(result)
-                configs.append({'frameSizes':list(sizes),'audioEvidence':mode,'continuityWeight':weight})
+                base_runs.append([r['time'] for r in result]);base_details.append(result)
+                base_configs.append({'frameSizes':list(sizes),'audioEvidence':mode,'continuityWeight':weight})
+                for boundary in ((0.,.5,1.) if onset_index is not None else (.5,)):
+                    trial=result
+                    if onset_index is not None:
+                        trial=[onset_index.refine(t,r,periods[i],
+                                   0 if i==0 else (priors[i-1]+priors[i])/2+.001,
+                                   time_axis[-1] if i+1==len(priors) else (priors[i]+priors[i+1])/2-.001,
+                                   mode,boundary) for i,(t,r) in enumerate(zip(peaks,result))]
+                    refined=np.array([r['time'] for r in trial])
+                    assert np.all(np.diff(refined)>0),'Pulse ownership must prevent reversed counts'
+                    runs.append(refined);details.append(trial)
+                    configs.append({'frameSizes':list(sizes),'audioEvidence':mode,'continuityWeight':weight,
+                                    'onsetBoundary':boundary})
     all_curves={lane:np.mean([curves[lane,size,method] for size in SIZES for method in METHOD_IDS],axis=0) for lane in lanes}
-    return {'times':time_axis,'curves':all_curves,'energy':energy,'runs':np.array(runs),'configs':configs,'details':details,'window':window}
+    return {'times':time_axis,'curves':all_curves,'energy':energy,'runs':np.array(runs),'configs':configs,'details':details,'window':window,
+            'base':{'runs':np.array(base_runs),'details':base_details,'configs':base_configs}}
 
 def summarize_slot(analysis,index):
     values=analysis['runs'][:,index]
+    # Abstaining runs must not vote for their unchanged original timestamp.
+    valid=np.array([r[index]['source']!='unresolved' and r[index]['score']>=.16
+                    for r in analysis['details']])
     # Select a modal cluster, not the median between two distinct attacks.
-    neighborhoods=[np.abs(values-t)<=MATCH_SECONDS for t in values]
+    neighborhoods=[(np.abs(values-t)<=MATCH_SECONDS)&valid for t in values]
+    neighborhoods=[mask for mask in neighborhoods if mask.any()]
+    if not neighborhoods:neighborhoods=[np.ones(len(values),dtype=bool)]
     selected=max(neighborhoods,key=lambda mask:(int(mask.sum()),-float(np.std(values[mask]))))
-    center=float(np.median(values[selected]));selected=np.abs(values-center)<=MATCH_SECONDS
-    center=float(np.median(values[selected]));support=int(selected.sum())
+    center=float(np.median(values[selected]));selected=(np.abs(values-center)<=MATCH_SECONDS)&(valid if valid.any() else True)
+    center=float(np.median(values[selected]));support=int((selected&valid).sum())
     mode_centers={mode:float(np.median(values[[c['audioEvidence']==mode for c in analysis['configs']]])) for mode in ('mix','joint')}
     source_agreement=abs(mode_centers['mix']-mode_centers['joint'])<=MATCH_SECONDS
     lo,hi=np.quantile(values,[.1,.9]);width=float(hi-lo)
-    strong=support>=20 and width<=.06 and source_agreement
+    strong=support>=math.ceil(len(values)*5/6) and width<=.06 and source_agreement
     selected_details=[r[index] for r,match in zip(analysis['details'],selected) if match]
     sources=Counter(d['source'] for d in selected_details if d['source']!='unresolved')
     evidence=float(np.mean([d['score'] for d in selected_details]))
@@ -211,7 +228,7 @@ def feature_cache(audio, directory, progress=lambda _:None):
     path.with_suffix('.json').write_text(json.dumps(identity,indent=2)+'\n')
     return values
 
-def select_clock(audio, arrays, slots, duration, progress=lambda _:None):
+def select_clock(audio, arrays, slots, duration, progress=lambda _:None, onsets=None):
     """Preserve numbered slots; accept attacks only when all prior groups agree."""
     if not slots:return [],{'algorithm':ALGORITHM,'counts':0,'supportedAttacks':0,'pulseFallbacks':0}
     priors=np.asarray([s['predicted'] for s in slots],float)
@@ -219,37 +236,56 @@ def select_clock(audio, arrays, slots, duration, progress=lambda _:None):
     if any(b['index']!=a['index']+1 for a,b in zip(slots,slots[1:])):raise ValueError('Count indices must be consecutive')
     if len(priors)<2:
         return [{**s,'time':s['predicted'],'source':'pulse','strength':0,'status':'pulse','timingConfidence':'insufficient_context'} for s in slots],{'algorithm':ALGORITHM,'counts':len(slots),'supportedAttacks':0,'pulseFallbacks':len(slots)}
+    from .attack_candidates import OnsetIndex
+    onset_index=OnsetIndex(onsets) if onsets is not None else None
     analyses={}
     for shift in PRIOR_SHIFTS_MS:
-        progress(f'Checking 24 acoustic settings; beat prior {shift:+d} ms')
-        analyses[shift]=analyze_signals(audio,arrays,priors+shift/1000)
+        progress(f'Checking acoustic and onset settings; beat prior {shift:+d} ms')
+        analyses[shift]=analyze_signals(audio,arrays,priors+shift/1000,onset_index)
     output=[]
     for i,slot in enumerate(slots):
-        summaries={shift:summarize_slot(a,i) for shift,a in analyses.items()};base=summaries[0]
-        stable=all(s['stable'] and abs(s['time']-base['time'])<=MATCH_SECONDS for s in summaries.values())
+        summaries={shift:summarize_slot(a,i) for shift,a in analyses.items()}
+        acoustic={shift:summarize_slot(a['base'],i) for shift,a in analyses.items()}
+        def accepted(groups):
+            return all(g['stable'] and abs(g['time']-groups[0]['time'])<=MATCH_SECONDS for g in groups.values())
+        # Resolve the acoustic event before claiming more precise waveform
+        # timing. Supplemental candidates cannot turn an ambiguous note into a
+        # confident one, or erase a stable independent acoustic estimate.
+        base=acoustic[0];stable=accepted(acoustic);refined=False
+        if stable and onset_index is not None and accepted(summaries):
+            acoustic_lo=min(g['range'][0] for g in acoustic.values())
+            acoustic_hi=max(g['range'][1] for g in acoustic.values())
+            # The existing energy envelope is 12 ms wide. Requiring overlap at
+            # that resolution prevents a stable but *different* neighboring
+            # note from replacing the identified event (in either direction).
+            refined=acoustic_lo-.012<=summaries[0]['time']<=acoustic_hi+.012
+        if refined:base=summaries[0]
+        selected_groups=summaries if refined else acoustic
         left=0 if i==0 else (priors[i-1]+priors[i])/2
         right=duration if i+1==len(priors) else (priors[i]+priors[i+1])/2
         stable=stable and left<base['time']<right
         output.append({**slot,'time':round(base['time'],6) if stable else float(slot['predicted']),
                        'source':base['source'] if stable else 'pulse','strength':round(base['evidence'],4) if stable else 0,
-                       'status':'attack' if stable else 'pulse','timingConfidence':'supported' if stable else 'uncertain',
+                       'status':'attack' if stable else 'pulse','timingConfidence':('waveform_supported' if refined else 'supported') if stable else 'uncertain',
+                       'onsetRefined':bool(refined and stable),
                        'candidateTime':round(base['time'],6),'candidateSource':base['source'],
                        'settingsNearby':base['stableRuns'],'settingsPerPrior':base['totalRuns'],
-                       'passingPriorGroups':sum(s['stable'] and abs(s['time']-base['time'])<=MATCH_SECONDS for s in summaries.values()),
-                       'timingRange':[round(min(s['range'][0] for s in summaries.values()),6),round(max(s['range'][1] for s in summaries.values()),6)],
+                       'passingPriorGroups':sum(s['stable'] and abs(s['time']-base['time'])<=MATCH_SECONDS for s in selected_groups.values()),
+                       'timingRange':[round(min(s['range'][0] for s in selected_groups.values()),6),round(max(s['range'][1] for s in selected_groups.values()),6)],
                        'reason':'Repeated acoustic attack supported across settings' if stable else 'Competing or weak attacks; continuing the estimated pulse'})
     # Do not display extrapolated silent opening counts. Once counting begins,
     # breaks keep the same sequence and the pulse supplies missing attacks.
-    opening=sum(bool(s.get('opening')) for s in slots)
-    start=opening
-    for i in range(opening):
-        if output[i]['status']=='attack' and i+1<len(output) and output[i+1]['status']=='attack':start=i;break
+    from .pulse_track import opening_start
+    start=opening_start(analyses[0],slots,DT,EDT)
     output=output[start:]
     assert all(a['time']<b['time'] and a['index']+1==b['index'] for a,b in zip(output,output[1:]))
     quality={'algorithm':ALGORITHM,'counts':len(output),'supportedAttacks':sum(e['status']=='attack' for e in output),
-             'pulseFallbacks':sum(e['status']=='pulse' for e in output),'runs':120,'learnedWindow':analyses[0]['window'],
-             'rule':'Learned pulse window, local repetition, complex/RMS/HFC evidence; all five prior groups must pass. Ambiguity uses the pulse.',
+             'pulseFallbacks':sum(e['status']=='pulse' for e in output),'runs':len(analyses[0]['configs'])*len(analyses),'learnedWindow':analyses[0]['window'],
+             'rule':'Accept acoustic event first, then overlapping waveform refinement only if every prior group agrees. Retain a stable acoustic attack when refinement abstains; otherwise continue the pulse.',
              'accuracyMeasured':False,'confidenceMeaning':'Parameter robustness; not a probability of musical correctness',
-             'sourcesGrouped':True,'localTempoContext':True}
+             'sourcesGrouped':True,'localTempoContext':True,'openingSlotsTrimmed':start}
+    quality['onsetsInsideConsensus']=onset_index is not None
+    quality['waveformRefinements']=sum(e['onsetRefined'] for e in output)
+    quality['acousticRuns']=len(analyses[0]['base']['configs'])*len(analyses)
     return output,quality
 

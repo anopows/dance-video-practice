@@ -35,7 +35,8 @@ def analyze(folder, models):
     from beat_this.inference import Audio2Beats
     from .research_adapter import functions, model
     from .beat_grid import detect, pulse_slots
-    from .pulse_timing import feature_cache, select_clock
+    from .pulse_track import phase_bars, times_at
+    from .pulse_timing import ALGORITHM, feature_cache, select_clock
     torch.set_num_threads(3)
     torch.set_num_interop_threads(1)
     source = folder/"original"
@@ -61,12 +62,13 @@ def analyze(folder, models):
         raise InvalidVideo("No steady beat was found. Try a longer clip with clearer music.")
     grid, count_quality, beats, downbeats = result
     f = functions()
-    fixed, bars = f["fixed_bars"](grid, duration)
+    fixed, _ = f["fixed_bars"](grid, duration)
+    phase_beats, bars = phase_bars(grid, duration)
     stage(folder, "Choosing the starting eight-count", "one")
     phase_model, ns = model(models)
     analysis_rate=count_quality['analysisRate']
     phase_audio=y if analysis_rate==1 else librosa.resample(y,orig_sr=22050*analysis_rate,target_sr=22050)
-    _, _, observations = f["run_model"](phase_audio, fixed/analysis_rate, np.array([b["beatIndex"] for b in bars]), phase_model, ns)
+    _, _, observations = f["run_model"](phase_audio, phase_beats/analysis_rate, np.array([b["beatIndex"] for b in bars]), phase_model, ns)
     eligible = np.array([b["complete"] and b["end"] <= beats[-1]+grid["period"] for b in bars])
     core = eligible.copy(); core[:10] = False; core[-10:] = False
     if core.sum() >= 8:
@@ -77,7 +79,7 @@ def analyze(folder, models):
     anchor = int(parity*4)
     count_quality.update(phaseMargin=round(abs(scores[0]-scores[1]),4),phaseBars=int(eligible.sum()))
     if eligible.sum()<4 or abs(scores[0]-scores[1])<.08:count_quality['needsReview']=True
-    grid.update(modelAnchorIndex=anchor, modelFirstOne=float(grid["origin"]+anchor*grid["period"]))
+    grid.update(modelAnchorIndex=anchor, modelFirstOne=float(times_at(grid,[anchor])[0]))
     grid["id"] = hashlib.sha256(json.dumps(grid, sort_keys=True).encode()).hexdigest()[:16]
     del phase_model, ns, observations
     gc.collect()
@@ -118,14 +120,14 @@ def analyze(folder, models):
         (folder/"stem.wav").unlink()
     arrays = feature_cache(acoustic, folder/"acoustic-cache", lambda text:stage(folder,text))
     events, timing_quality = select_clock(acoustic, arrays, pulse_slots(grid, beats, duration), duration,
-                                           lambda text:stage(folder,text))
+                                           lambda text:stage(folder,text), onsets=lanes)
     if not events:
         raise InvalidVideo("The counts couldn't be worked out for this clip. Try a longer clip with clearer music.")
     with source.open("rb") as stream:
         source_hash = hashlib.file_digest(stream, "sha256").hexdigest()
     labels = {k: k.title()+" estimate" for k in ("bass", "drums", "piano", "guitar")}
     labels.update(low="Low register", mid="Mid register", high="High percussion band", mix="Full mix", pulse="Estimated pulse")
-    attack = {"algorithm": "pulse-consensus-v3", "quality": timing_quality, "events": events, "beats": [e["time"] for e in events],
+    attack = {"algorithm": ALGORITHM, "quality": timing_quality, "events": events, "beats": [e["time"] for e in events],
         "lanes": lanes, "labels": labels, "accuracyMeasured": False, "stemOffsetSeconds": 0,
         "basis": "Fresh Demucs htdemucs_6s PCM estimates plus acoustic mix bands"}
     attack["id"] = hashlib.sha256(json.dumps(events, sort_keys=True).encode()).hexdigest()[:16]
@@ -133,7 +135,7 @@ def analyze(folder, models):
         "fps": 30, "beats": fixed.tolist(), "detectedBeats": beats.tolist(), "grid": grid, "attack": attack,
         "bpm": grid["bpm"], "defaultAnchor": anchor, "defaultTiming": "attack",
         "phaseEvidence": scores, "countQuality": count_quality, "anchorStatus": "Automatic eight-count suggestion; review before relying on it.",
-        "pipeline": "robust-grid-pulse-consensus-v3", "audioAlignment": "Analyzed the exact normalized playback audio, including leading silence.",
+        "pipeline": "tempo-track-pulse-onset-consensus-v6", "audioAlignment": "Analyzed the exact normalized playback audio, including leading silence.",
         "soloInstruments": ["bass", "drums", "piano", "guitar"]}
     from .slow_audio import prepare_playback
     stage(folder, "Preparing slow-motion audio", "slowmo")

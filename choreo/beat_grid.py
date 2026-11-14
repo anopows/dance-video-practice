@@ -35,7 +35,10 @@ def fit_grid(beats, downbeats, duration, rate=1):
         for seed in seeds:
             period=float(initial);origin=float(seed)
             for _ in range(3):
-                tolerance=min(.06*rate,max(.025*rate,period*.13))
+                # All predictions have already been mapped to source seconds.
+                # Scaling this tolerance again made a 4x-rate view accept every
+                # timestamp on a spurious fast grid (tolerance > half a beat).
+                tolerance=min(.06,max(.025,period*.13))
                 bidx=np.rint((beats-origin)/period);didx=4*np.rint((downs-origin)/(4*period))
                 bm=abs(beats-origin-bidx*period)<tolerance
                 dm=abs(downs-origin-didx*period)<tolerance
@@ -44,7 +47,7 @@ def fit_grid(beats, downbeats, duration, rate=1):
                 fitted=np.linalg.lstsq(np.column_stack([np.ones(len(x)),x]),y,rcond=None)[0]
                 if not .15<=fitted[1]<=2 or abs(fitted[1]/initial-1)>.08:break
                 origin,period=map(float,fitted)
-            tolerance=min(.06*rate,max(.025*rate,period*.13))
+            tolerance=min(.06,max(.025,period*.13))
             br=np.abs(beats-origin-np.rint((beats-origin)/period)*period)
             dr=np.abs(downs-origin-4*np.rint((downs-origin)/(4*period))*period)
             precision=float(np.mean(br<tolerance));bar_precision=float(np.mean(dr<tolerance))
@@ -80,7 +83,7 @@ def detect(model, audio, sample_rate, duration, progress=lambda _:None):
     seconds; never speed up the stored video or reset the count sequence.
     """
     results=[]
-    for rate in (1.,2.,4.,.75):
+    for rate in (1.,.75,1.25,2.):
         if rate!=1 and duration/rate<6:continue
         progress('Checking music pulse' if rate==1 else 'Checking an alternative audio rate')
         b,d=model(audio,round(sample_rate*rate))
@@ -88,11 +91,15 @@ def detect(model, audio, sample_rate, duration, progress=lambda _:None):
         beats=beats[(beats>=0)&(beats<duration)];downs=downs[(downs>=0)&(downs<duration)]
         fit=fit_grid(beats,downs,duration,rate)
         if fit:
-            grid,quality=fit;quality['analysisRate']=rate
+            from .pulse_track import track_grid
+            grid,quality=track_grid(beats,downs,duration,*fit)
+            quality['analysisRate']=rate
             results.append((grid,quality,beats,downs))
             if rate==1 and not quality['needsReview']:break
     if not results:return None
-    best=max(results,key=lambda item:(not item[1]['needsReview'],item[1]['score']))
+    # Compare the same source-time criteria, with a small preference for the
+    # unaltered recording when two views are equally supported.
+    best=max(results,key=lambda item:(not item[1]['needsReview'],item[1]['score']-.02*abs(np.log2(item[1]['analysisRate']))))
     q=best[1]
     q['unsupported']=q['beatAgreement']<.6 or q['barAgreement']<.4 or q['supportedSpan']<.4
     best[1]['alternatives']=[{'rate':q['analysisRate'],'bpm':round(g['bpm'],3),'score':q['score'],'needsReview':q['needsReview']} for g,q,_,_ in results]
@@ -101,6 +108,9 @@ def detect(model, audio, sample_rate, duration, progress=lambda _:None):
 
 def pulse_slots(grid, beats, duration):
     """One slot per grid beat, including gaps and possible audible pickups."""
+    if grid.get('pulseTrack'):
+        from .pulse_track import slots
+        return slots(grid,beats,duration)
     origin,period=grid['origin'],grid['period']
     beats=np.asarray(beats)
     residual=abs(beats-origin-np.rint((beats-origin)/period)*period)

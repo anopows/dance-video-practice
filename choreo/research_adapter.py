@@ -1,6 +1,6 @@
 """Load reviewed functions from the recorded research snapshot.
 
-The snapshot remains unchanged for comparison; batch-specific main functions,
+Only the selected definitions run; batch-specific main functions,
 personal paths, old predictions and cached stems are never executed or copied.
 """
 import ast

@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     r2_bucket: str = "choreo-practice"
     r2_access_key: str = ""
     r2_secret_key: str = ""
+    r2_guard_enabled: bool = False
+    r2_webhook_secret: str = ""
+    r2_budget_policy_id: str = ""
+    r2_account_id: str = ""
     session_seconds: int = 28800
     retention_seconds: int = 90 * 86400
     upload_seconds: int = 1800

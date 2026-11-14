@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import ipaddress
 import json
+import logging
 import math
 import re
 import secrets
@@ -16,7 +17,8 @@ import httpx
 from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from starlette.background import BackgroundTask
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
@@ -26,6 +28,7 @@ from .limits import EXPORT_QUEUE_LIMIT
 from .db import Database, kpi_count, best_count
 from . import kpi
 from .storage import Storage
+from .r2_guard import CostLimit
 from .slow_audio import SLOW_MEDIA, ENGINE as SLOW_ENGINE
 
 STATIC = Path(__file__).parent / "static"
@@ -194,7 +197,7 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
                 length = -1
             if not 0 <= length <= max_body:
                 return JSONResponse({"detail": "This request is too large."}, status_code=413)
-        if path.startswith("/api/"):
+        if path.startswith(("/api/", "/media/")):
             try:
                 with db.connect(write=True) as con:
                     rate(con, "api:"+ip(request), 240, 60, time.time())
@@ -216,6 +219,57 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
             "Strict-Transport-Security": "max-age=31536000",
         })
         return response
+
+    @app.exception_handler(CostLimit)
+    async def cost_limit(request, exc):
+        return JSONResponse({'detail': 'Media access is paused by the storage cost safeguard.'}, status_code=503)
+
+    @app.api_route('/media/{key:path}', methods=['GET', 'HEAD'])
+    def guarded_media(key: str, request: Request, expires: int, sig: str, download: int = 0):
+        if not store.verify_media(key, expires, download, sig):
+            raise HTTPException(403, 'This media link is invalid or expired. Reload the video.')
+        with db.connect() as con:
+            project(con, key.split('/')[1])
+        try:
+            status, headers, body = store.open_media(key, request.headers.get('range'), request.method == 'HEAD')
+        except store.client.exceptions.ClientError:
+            raise HTTPException(503, 'Media is temporarily unavailable.')
+        if download:
+            headers['Content-Disposition'] = 'attachment; filename="practice-counts.mp4"'
+        if body is None:
+            return Response(status_code=status, headers=headers)
+        def chunks():
+            try:
+                yield from body.iter_chunks(1024*1024)
+            finally:
+                body.close()
+        return StreamingResponse(chunks(), status_code=status, headers=headers, background=BackgroundTask(body.close))
+
+    @app.post('/hooks/cloudflare-budget')
+    async def budget_webhook(request: Request):
+        if (not cfg.r2_guard_enabled or not cfg.r2_webhook_secret
+                or not hmac.compare_digest(request.headers.get('cf-webhook-auth', ''), cfg.r2_webhook_secret)):
+            raise HTTPException(403, 'Forbidden')
+        try:
+            payload = await request.json()
+        except ValueError:
+            raise HTTPException(400, 'Invalid payload')
+        if not isinstance(payload, dict):
+            raise HTTPException(400, 'Invalid payload')
+        # Cloudflare's documented destination test must never trip production.
+        probe_prefix = 'Hello World! This is a test message sent from https://cloudflare.com. If you can see this, your webhook is configured '
+        if set(payload) == {'text'} and payload['text'] in {probe_prefix+'properly.', probe_prefix+'correctly.'}:
+            return {'ok': True, 'test': True}
+        if (not cfg.r2_budget_policy_id or payload.get('policy_id') != cfg.r2_budget_policy_id
+                or payload.get('account_id') != cfg.r2_account_id
+                or payload.get('alert_type') != 'billing_budget_alert'):
+            logging.getLogger(__name__).warning('Rejected budget webhook: fields=%s type=%r text=%r',
+                sorted(payload), payload.get('alert_type'), str(payload.get('text', ''))[:300])
+            raise HTTPException(400, 'Unexpected alert')
+        if payload.get('alert_event') == 'ALERT_STATE_EVENT_END':
+            return {'ok': True, 'ignored': True}
+        store.guard.stop('Cloudflare $200 account budget alert')
+        return {'ok': True, 'stopped': True}
 
     @app.get("/healthz")
     def health():

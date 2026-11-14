@@ -87,6 +87,9 @@
     const sourceBeats=legacy?data.detectedBeats:data.beats;
     if(!Array.isArray(sourceBeats)||!Number.isInteger(anchor)||(!(anchor>=0&&anchor<sourceBeats.length)&&!data.attack?.events?.some(e=>e.index===anchor)))return null;
     if(data.grid&&value.gridId&&value.gridId!==data.grid.id)return null;
+    // Attack offsets belong to the acoustic clock that was reviewed. A new
+    // onset analysis can keep the same beat indices while moving the attacks.
+    if(value.timingMode==='attack'&&value.timingId&&data.attack&&value.timingId!==data.attack.id)return null;
     if(legacy){
       if(value.reviewed===true){
         const chosenTime=sourceBeats[anchor]+offset;
