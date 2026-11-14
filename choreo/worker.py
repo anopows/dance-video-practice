@@ -60,6 +60,10 @@ class Worker:
         self.jobs = cfg.state_dir/"jobs"
         self.jobs.mkdir(mode=0o700, exist_ok=True)
 
+    def heartbeat(self):
+        with self.db.connect(write=True) as con:
+            con.execute("INSERT OR REPLACE INTO flags VALUES (?,?,?)", ("worker_heartbeat", str(time.time()), time.time()))
+
     def cleanup(self):
         now = time.time()
         with self.db.connect(write=True) as con:
@@ -139,6 +143,7 @@ class Worker:
                     env={"PATH": "/usr/bin:/bin"})
                 started = time.monotonic()
                 while process.poll() is None:
+                    self.heartbeat()
                     if time.monotonic()-started > 3600:
                         raise RuntimeError("Processing time limit exceeded")
                     with self.db.connect(write=True) as con:
@@ -207,6 +212,7 @@ class Worker:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             self.recover()
             while True:
+                self.heartbeat()
                 self.cleanup()
                 job = self.claim()
                 if job:

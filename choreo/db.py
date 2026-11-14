@@ -4,6 +4,7 @@ import sqlite3
 from . import kpi
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS flags (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS sessions (hash TEXT PRIMARY KEY, csrf TEXT NOT NULL, expires REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS requests (bucket TEXT NOT NULL, stamp REAL NOT NULL);
 CREATE INDEX IF NOT EXISTS requests_bucket_stamp ON requests(bucket, stamp);

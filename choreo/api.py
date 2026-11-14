@@ -2,6 +2,8 @@ import asyncio
 import hashlib
 import hmac
 import ipaddress
+import html
+import sqlite3
 import json
 import logging
 import math
@@ -17,12 +19,13 @@ import httpx
 from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from starlette.background import BackgroundTask
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+from .legal import LegalPages
 from .config import settings
 from .limits import EXPORT_QUEUE_LIMIT
 from .db import Database, kpi_count, best_count
@@ -120,6 +123,8 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
         cfg.validate_production()
     db = Database(cfg.state_dir / "room.sqlite3")
     store = storage or Storage(cfg)
+    legal = LegalPages(cfg.legal_dir)
+    app_legal = legal
     ph = PasswordHasher(time_cost=2, memory_cost=19456, parallelism=1)
 
     @asynccontextmanager
@@ -128,6 +133,7 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
 
     app = FastAPI(title="Five Six", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.db, app.state.storage = db, store
+    app.state.legal = app_legal
     part_slots = asyncio.Semaphore(3)
 
     def ip(request):
@@ -213,7 +219,7 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
         response.headers.update({
             "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
             "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY",
-            "X-Robots-Tag": "noindex, nofollow, noarchive",
+            "X-Robots-Tag": "index, follow" if path in ("/", "/terms", "/privacy", "/legal") else "noindex, nofollow, noarchive",
             "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
             "Content-Security-Policy": "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src 'self' https://challenges.cloudflare.com; media-src 'self' https://*.r2.cloudflarestorage.com blob:; img-src 'self' https://*.r2.cloudflarestorage.com data:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
             "Strict-Transport-Security": "max-age=31536000",
@@ -273,9 +279,42 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
 
     @app.get("/healthz")
     def health():
-        with db.connect() as con:
-            con.execute("SELECT 1")
-        return {"ok": True}
+        worker, queue, paused, stopped = False, 0, True, True
+        try:
+            with db.connect() as con:
+                flags = dict(con.execute("SELECT key,value FROM flags"))
+                heartbeat = float(flags.get("worker_heartbeat", 0))
+                worker = 0 <= time.time() - heartbeat <= 120
+                queue = con.execute("SELECT count(*) FROM jobs WHERE status IN ('queued','processing')").fetchone()[0]
+                paused = flags.get("uploads_paused", "1") == "1"
+            guard = getattr(store, "guard", None)
+            stopped = bool(guard.status()["stopped"]) if guard else not testing
+        except (sqlite3.Error, CostLimit, ValueError, OSError):
+            worker, stopped = False, True
+        ok = worker and not stopped
+        return JSONResponse({"ok": ok, "worker": worker, "queue": queue,
+                             "guardStopped": stopped, "uploadsPaused": paused}, status_code=200 if ok else 503)
+
+    @app.get("/terms")
+    @app.get("/privacy")
+    @app.get("/legal")
+    def legal_page(request: Request):
+        content = legal.get(request.url.path[1:])
+        if content is None:
+            raise HTTPException(404, "Legal pages are not available yet.")
+        return HTMLResponse(content)
+
+    @app.get("/robots.txt")
+    def robots():
+        return Response("User-agent: *\nAllow: /$\nAllow: /terms$\nAllow: /privacy$\nAllow: /legal$\n"
+                        "Disallow: /practice/\nDisallow: /api/\nDisallow: /auth/\nDisallow: /admin\nDisallow: /media/\n"
+                        + "Sitemap: " + cfg.origin + "/sitemap.xml\n", media_type="text/plain")
+
+    @app.get("/sitemap.xml")
+    def sitemap():
+        paths = ("/", "/terms", "/privacy", "/legal") if legal.ready else ("/",)
+        urls = "".join("<url><loc>" + html.escape(cfg.origin + path) + "</loc></url>" for path in paths)
+        return Response('<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + urls + "</urlset>", media_type="application/xml")
 
     @app.get("/api/bootstrap")
     def bootstrap(request: Request):
@@ -287,7 +326,7 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False):
         return {"siteKey": cfg.turnstile_site_key, "maxBytes": cfg.max_bytes,
                 "maxDuration": cfg.max_duration, "partBytes": cfg.part_bytes,
                 "retentionDays": cfg.retention_seconds // 86400,
-                "sessionSeconds": cfg.session_seconds, **auth}
+                "sessionSeconds": cfg.session_seconds, "legalReady": legal.ready, **auth}
 
     @app.post("/api/login")
     async def login(body: Login, request: Request, response: Response):

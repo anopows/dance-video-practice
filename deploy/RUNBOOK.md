@@ -79,3 +79,13 @@ EnvironmentFile. They do not bypass HTTP login or replace browser upload tests.
 ## KPI counters
 
 The application records aggregate UTC daily counts and daily pseudonymous distinct-visitor hashes in its own SQLite database. The hashes are pruned by the worker cleanup loop and never appear in exports. No access logs are enabled. The app's KPI timer runs its exporter as the application user and writes its JSON under `/var/lib/kpi/data/`; see the separate KPI repository for metric meanings, deployment and how to add fixed metric names. Existing database backups include the counters. Exported counts are best effort and are not an audit log.
+
+## Public launch M1 implementation — 14 November 2026
+
+Legal pages are read from `CHOREO_LEGAL_DIR`; all three must be complete and the legal notice must include `id="report"`. Missing files or unresolved template tokens keep the routes unavailable. Install reviewed operator-specific files outside the repository.
+
+`/healthz` checks the database, a worker heartbeat no older than 120 seconds and the local cost guard. Install `choreo-health.timer` with `/etc/choreo-health.env` containing `HC_HEALTH_URL`. The check verifies HTTPS health and 10 GB free disk.
+
+For nightly backups install `age` and `rclone`, a bucket-scoped `/etc/choreo-backup.conf` (remote `backups`), and `/etc/choreo-backup.env` with `AGE_RECIPIENT` and `HC_BACKUP_URL`. Keep these files mode 0600 owned by choreo. Enable `choreo-backup.timer` for 03:40 UTC. Keep the private age key off the host. Restore quarterly on a separate machine and record the integrity and API checks.
+
+Local foundation acceptance tests passed. Production rollout has not occurred: GitHub publication/CI, backup credentials, monitoring endpoints and the restore/alert drills remain launch gates. The inspected host has 4 vCPU, 8 GB RAM and an 80 GB disk; M3 requires the design's larger host. Existing services were healthy during the read-only check.
