@@ -56,6 +56,8 @@ class Worker:
     def __init__(self, cfg, storage=None):
         self.cfg = cfg
         self.db = Database(cfg.state_dir/"room.sqlite3")
+        self.db.migrate(cfg)
+        self.last_kind = "export"
         self.store = storage or Storage(cfg)
         self.jobs = cfg.state_dir/"jobs"
         self.jobs.mkdir(mode=0o700, exist_ok=True)
@@ -108,9 +110,10 @@ class Worker:
 
     def claim(self):
         with self.db.connect(write=True) as con:
-            job = con.execute("SELECT j.* FROM jobs j JOIN projects p ON p.id=j.project WHERE j.status='queued' AND p.expires>? AND p.status NOT IN ('deleted','expired','failed') ORDER BY j.created LIMIT 1", (time.time(),)).fetchone()
+            job = con.execute("SELECT j.* FROM jobs j JOIN projects p ON p.id=j.project WHERE j.status='queued' AND p.expires>? AND p.status NOT IN ('deleted','expired','failed') ORDER BY (j.kind=?) ASC,j.created LIMIT 1", (time.time(),self.last_kind)).fetchone()
             if not job:
                 return None
+            self.last_kind=job["kind"]
             con.execute("UPDATE jobs SET status='processing',attempt=attempt+1,updated=? WHERE id=?", (time.time(), job["id"]))
             if job['attempt'] == 0:
                 kpi_count(con,kpi.observe,'queue_s',max(0,time.time()-job['created']))

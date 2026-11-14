@@ -6,7 +6,9 @@ from choreo.r2_guard import R2Guard
 
 def test_legal_pages_and_indexing(room, tmp_path):
     c, app, cfg, _ = room
-    app.state.legal.directory=tmp_path/'legal'; app.state.legal.directory.mkdir()
+    app.state.legal.directory=tmp_path/'legal'; app.state.legal.directory.mkdir(exist_ok=True)
+    for old in app.state.legal.directory.glob('*.html'):old.unlink()
+    app.state.legal._until=0
     assert c.get('/terms').status_code==404
     assert not c.get('/api/bootstrap').json()['legalReady']
     for name in ('terms','privacy','legal'):
@@ -22,7 +24,7 @@ def test_legal_pages_and_indexing(room, tmp_path):
 
 def test_health_is_local_and_tracks_worker_and_guard(room, tmp_path):
     c, app, cfg, store = room
-    store.guard=R2Guard.initialize(tmp_path/'r2-guard.sqlite3')
+    # Guard is initialized by the shared fixture.
     assert c.get('/healthz').status_code==503
     with app.state.db.connect(write=True) as con:
         con.execute('INSERT OR REPLACE INTO flags VALUES (?,?,?)',('worker_heartbeat',str(time.time()),time.time()))
@@ -33,7 +35,7 @@ def test_health_is_local_and_tracks_worker_and_guard(room, tmp_path):
 
 def test_online_backup_restores_both_databases(room, tmp_path):
     _,app,cfg,_=room
-    R2Guard.initialize(tmp_path/'r2-guard.sqlite3')
+    # Guard is initialized by the shared fixture.
     with app.state.db.connect(write=True) as con:
         con.execute('INSERT INTO flags VALUES (?,?,?)',('test','retained',time.time()))
     backup(tmp_path/'copies',cfg.state_dir)

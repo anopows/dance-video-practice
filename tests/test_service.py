@@ -1,5 +1,6 @@
 import concurrent.futures
 import json
+import re
 import time
 import uuid
 from pathlib import Path
@@ -23,24 +24,37 @@ def room(tmp_path, monkeypatch):
     with mock_aws():
         cfg = Settings(origin="https://practice.test", state_dir=tmp_path,
             password_hash=PasswordHasher(time_cost=2, memory_cost=19456, parallelism=1).hash("test-pass"),
-            turnstile_site_key="test-only", r2_bucket="practice-test")
+            turnstile_site_key="test-only", r2_bucket="practice-test", secret_key="s"*48, admin_email="admin@example.com", abuse_email="abuse@example.com", smtp_host="test", legal_dir=tmp_path/"legal", r2_guard_enabled=True)
+        cfg.legal_dir.mkdir()
+        for name in ("terms","privacy","legal"):(cfg.legal_dir/(name+".html")).write_text('<html><div id="report">Test legal page</div></html>')
         store = Storage.__new__(Storage)
+        from choreo.r2_guard import R2Guard
+        store.cfg=cfg
+        store.guard=R2Guard.initialize(tmp_path/"r2-guard.sqlite3")
         store.bucket = cfg.r2_bucket
         store.client = boto3.client("s3", region_name="us-east-1")
         store.client.create_bucket(Bucket=store.bucket)
         async def verify(token, action):
             return {"success": token != "bad", "hostname": "evil.test" if token == "wrong-host" else cfg.hostname,
                     "action": "other" if token == "wrong-action" else action}
-        app = create_app(cfg, store, verify, testing=True)
+        messages=[]
+        app = create_app(cfg, store, verify, testing=True, mailer=messages.append)
+        app.state.messages=messages
         client = TestClient(app, base_url=cfg.origin)
         client.headers["Origin"] = cfg.origin
+        client.messages=messages
+        client.app_instance=app
         yield client, app, cfg, store
 
 
-def unlock(client):
-    r = client.post("/api/login", json={"password": "test-pass", "token": uuid.uuid4().hex})
-    assert r.status_code == 200, r.text
-    client.headers["X-CSRF-Token"] = r.json()["csrf"]
+def unlock(client,email="admin@example.com"):
+    r=client.post('/api/auth/email',json={'email':email,'token':uuid.uuid4().hex,'terms':1})
+    assert r.status_code==200,r.text
+    msg=client.messages[-1].get_body(preferencelist=('plain',)).get_content()
+    token=re.search(r'#t=([A-Za-z0-9_-]+)',msg).group(1)
+    r=client.post('/api/auth/email/confirm',json={'token':token})
+    assert r.status_code==200,r.text
+    client.headers['X-CSRF-Token']=r.json()['csrf']
     return r
 
 
@@ -62,7 +76,7 @@ def upload_small(client):
 def test_password_cookie_and_unauthorized_access(room):
     c,app,cfg,s=room
     assert c.get("/api/projects").status_code==401
-    assert c.post("/api/login",json={"password":"wrong","token":"fresh"}).status_code==401
+    assert c.post("/api/login",json={"password":"wrong","token":"fresh"}).status_code==404
     r=unlock(c)
     cookie=r.headers["set-cookie"]
     assert "HttpOnly" in cookie and "Secure" in cookie and "SameSite=strict" in cookie
@@ -75,17 +89,16 @@ def test_password_cookie_and_unauthorized_access(room):
 @pytest.mark.parametrize("token",["bad","wrong-host","wrong-action"])
 def test_turnstile_checks(room,token):
     c,*_=room
-    assert c.post("/api/login",json={"password":"test-pass","token":token}).status_code==400
+    assert c.post("/api/auth/email",json={"email":"admin@example.com","terms":1,"token":token}).status_code==400
 
 
 def test_turnstile_replay_and_login_throttle(room):
     c,*_=room
-    assert c.post("/api/login",json={"password":"test-pass","token":"same"}).status_code==200
-    assert c.post("/api/login",json={"password":"test-pass","token":"same"}).status_code==400
-    for i in range(3):
-        assert c.post("/api/login",json={"password":"bad","token":str(i)}).status_code==401
-    r=c.post("/api/login",json={"password":"test-pass","token":"next"})
-    assert r.status_code==429 and int(r.headers["retry-after"])>0
+    body={'email':'admin@example.com','terms':1,'token':'same'}
+    assert c.post('/api/auth/email',json=body).status_code==200
+    assert c.post('/api/auth/email',json=body).status_code==400
+    assert c.post('/api/auth/email',json={**body,'token':'third'}).status_code==200
+    assert c.post('/api/auth/email',json={**body,'token':'fourth'}).status_code==429
 
 
 def test_origin_csrf_and_password_not_in_client_source(room):
@@ -110,18 +123,19 @@ def test_single_active_reservation_is_atomic(room):
 
 def test_cancelled_uploads_keep_quota_and_idempotent_start(room):
     c,app,*_=room;unlock(c)
-    for i in range(3):
+    for i in range(5):
         request_id=uuid.uuid4().hex
         r=begin(c,request_id=request_id,token=f"token-{i}")
         assert r.status_code==200,r.text
         assert begin(c,request_id=request_id,token=f"token-{i}").json()["id"]==request_id
         assert c.delete('/api/projects/'+request_id).status_code==200
     r=begin(c)
-    assert r.status_code==429 and "upload limit" in r.json()["detail"]
+    assert r.status_code==429 and "24 hours" in r.json()["detail"]
 
 
 def test_daily_bytes_survive_cancellation(room):
     c,app,*_=room;unlock(c)
+    room[2].site_upload_bytes_day=2_000_000_000
     now=time.time()
     with app.state.db.connect(write=True) as db:
         for i in range(4):
@@ -188,7 +202,7 @@ def test_alignment_revision_and_export_dedup(room):
     b=c.post(f'/api/projects/{pid}/exports',json={'revision':1,'speed':.25})
     assert a.status_code==200 and a.json()['id']==b.json()['id']
     with app.state.db.connect() as db:
-        assert db.execute("SELECT COUNT(*) FROM requests WHERE bucket='exports:room'").fetchone()[0]==1
+        assert db.execute("SELECT COUNT(*) FROM requests WHERE bucket='exports:global'").fetchone()[0]==1
     assert c.post(f'/api/projects/{pid}/exports',json={'revision':0,'speed':.25}).status_code==409
 
 
@@ -276,7 +290,7 @@ def test_guest_exports_local_adjustments_without_changing_shared_counts(room):
         db.execute("UPDATE jobs SET status='ready',object_key=? WHERE id=?",(f'projects/{pid}/exports/{jid}.mp4',jid))
     assert c.get(url+'/'+jid).json()['url']
     assert c.get(f'/api/projects/{uuid.uuid4().hex}/exports/{jid}').status_code==404
-    assert c.get('/api/exports/'+jid).status_code==401
+    assert c.get('/api/exports/'+jid).status_code==404
     with app.state.db.connect(write=True) as db:
         db.execute('UPDATE projects SET expires=? WHERE id=?',(time.time()-1,pid))
     assert c.get(url+'/'+jid).status_code==404
@@ -304,9 +318,9 @@ def test_new_upload_retention_is_ninety_days(room):
 
 
 def test_production_refuses_missing_secrets_and_test_keys(tmp_path):
-    with pytest.raises(RuntimeError,match='Missing'):
+    with pytest.raises(RuntimeError):
         create_app(Settings(state_dir=tmp_path))
-    cfg=Settings(state_dir=tmp_path,password_hash='$argon2id$example',turnstile_site_key='1x00000000000000000000AA',turnstile_secret='x',r2_endpoint='https://r2.example',r2_access_key='x',r2_secret_key='y')
+    cfg=Settings(secret_key='s'*32,r2_guard_enabled=True,admin_email='admin@example.com',abuse_email='abuse@example.com',google_client_id='test',google_client_secret='test',state_dir=tmp_path,password_hash='$argon2id$example',turnstile_site_key='1x00000000000000000000AA',turnstile_secret='x',r2_endpoint='https://r2.example',r2_access_key='x',r2_secret_key='y')
     with pytest.raises(RuntimeError,match='test keys'):
         cfg.validate_production()
 

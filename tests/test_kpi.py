@@ -7,12 +7,11 @@ def totals(app):
 
 def test_login_upload_practice_export(room, tmp_path, monkeypatch):
     c,app,cfg,store=room
-    assert c.post('/api/login',json={'password':'bad','token':'first'}).status_code==401
     unlock(c);pid=ready(c,app)
     for _ in range(2): assert c.get(f'/api/projects/{pid}/practice').status_code==200
     for _ in range(2): assert c.post(f'/api/projects/{pid}/exports',json={'revision':0,'speed':1}).status_code==200
     got=totals(app)
-    assert all(got[k]==1 for k in ('login.bad_password','login.ok','upload.reserved','upload.completed','uniq.practice','export.requested','export.reused'))
+    assert all(got[k]==1 for k in ('signin.email.requested','signin.email.ok','upload.reserved','upload.completed','uniq.practice','export.requested','export.reused'))
     assert got['practice.opened']==2 and got['upload.bytes']==100
     from choreo import kpi_export
     monkeypatch.setenv('CHOREO_STATE_DIR',str(cfg.state_dir))

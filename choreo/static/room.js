@@ -32,6 +32,7 @@
     if(p.status==='queued')return ['beat','Waiting to start'];
     const s=p.stage||'';
     if(s==='check')return ['upload','Checking the video'];
+    if(s==='screen')return ['upload','Checking content'];
     if(STEPS.includes(s))return [s,s==='one'?'Working out where each eight starts':''];
     // Stage text from older workers.
     if(/beat/i.test(s))return ['beat',''];
@@ -47,32 +48,45 @@
   }
   function open(id){for(const d of document.querySelectorAll('dialog[open]'))d.close();$(id).showModal();}
 
-  // ---------- unlock ----------
+  // ---------- sign-in and account ----------
+  function enableSignin(){const allowed=$('consent').checked||!cfg.legalReady;$('google-signin').disabled=!allowed;$('login-submit').disabled=!(allowed&&$('email').value.trim()&&loginToken);}
   async function widget(){
-    if(loginWidget!==undefined)return;
+    if(loginWidget!==undefined||!cfg.emailSignIn)return;
     for(let i=0;i<100&&!window.turnstile;i++)await wait(100);
     if(!window.turnstile){message("The security check didn't load. Allow challenges.cloudflare.com in your blocker, then reload.");return;}
-    loginWidget=turnstile.render('#login-check',{sitekey:cfg.siteKey,action:'login',theme:'dark',
-      callback:token=>{loginToken=token;$('login-submit').disabled=false;},
-      'expired-callback':()=>{loginToken='';$('login-submit').disabled=true;},
+    loginWidget=turnstile.render('#login-check',{sitekey:cfg.siteKey,action:'signin',theme:'dark',
+      callback:token=>{loginToken=token;enableSignin();},'expired-callback':()=>{loginToken='';enableSignin();},
       'error-callback':()=>message("The security check didn't finish. Reload the page and try again.")});
   }
-  function resetCheck(){if(window.turnstile&&loginWidget!==undefined){loginToken='';turnstile.reset(loginWidget);$('login-submit').disabled=true;}}
-  function showUnlock(){message('');show('unlock');widget();$('password').focus();}
+  function resetCheck(){loginToken='';if(window.turnstile&&loginWidget!==undefined)turnstile.reset(loginWidget);enableSignin();}
+  function showUnlock(){message('');show('unlock');widget();$('email').focus();}
+  $('consent').addEventListener('change',enableSignin);$('email').addEventListener('input',enableSignin);
+  $('google-signin').addEventListener('click',()=>{if(!$('google-signin').disabled)location.assign('/auth/google/start?terms='+($('consent').checked?cfg.termsVersion:0));});
   $('start').addEventListener('click',showUnlock);
   $('unlock-back').addEventListener('click',()=>{message('');show('welcome');});
   $('login-form').addEventListener('submit',async e=>{
     e.preventDefault();message('');$('login-submit').disabled=true;
-    try{const r=await api('/api/login',{method:'POST',body:JSON.stringify({password:$('password').value,token:loginToken})});csrf=r.csrf;$('password').value='';await showRoom();}
-    catch(error){message(explain(error));resetCheck();}
+    try{await api('/api/auth/email',{method:'POST',body:JSON.stringify({email:$('email').value,token:loginToken,terms:$('consent').checked?cfg.termsVersion:0})});$('signin-controls').hidden=true;$('email-sent').hidden=false;$('different-email').hidden=false;$('email-sent').textContent=`Check your inbox. If sign-in is available for ${$('email').value}, a link will arrive shortly. It works for 15 minutes.`;}
+    catch(error){message(explain(error));}finally{resetCheck();}
   });
-  $('signout').addEventListener('click',async()=>{try{await api('/api/logout',{method:'POST',body:'{}'});location.assign('/');}catch(e){message(e.message);}});
+  $('different-email').addEventListener('click',()=>{$('signin-controls').hidden=false;$('email-sent').hidden=true;$('different-email').hidden=true;});
+  async function signout(){try{await api('/api/logout',{method:'POST',body:'{}'});sessionStorage.removeItem('choreo-active');location.assign('/');}catch(e){message(e.message);}}
+  $('signout').addEventListener('click',()=>{const q=cfg.user.quota;$('account-title').textContent=cfg.user.email;$('account-quota').textContent=`${q.dayUsed} of ${q.dayLimit} today · ${q.monthUsed} of ${q.monthLimit} in 30 days`;$('admin-link').hidden=!cfg.user.admin;$('account-delete').hidden=cfg.user.admin;open('account-sheet');});
+  $('account-signout').addEventListener('click',signout);$('terms-signout').addEventListener('click',signout);
+  $('account-delete').addEventListener('click',()=>{$('confirm-email').value='';$('confirm-account-delete').disabled=true;open('account-delete-sheet');});
+  $('confirm-email').addEventListener('input',()=>{$('confirm-account-delete').disabled=$('confirm-email').value!==cfg.user.email;});
+  $('confirm-account-delete').addEventListener('click',async()=>{try{await api('/api/account',{method:'DELETE',body:JSON.stringify({confirm:$('confirm-email').value})});sessionStorage.removeItem('choreo-active');location.assign('/');}catch(e){$('account-error').textContent=e.message;}});
+  $('terms-sheet').addEventListener('cancel',e=>e.preventDefault());
+  $('terms-sheet').addEventListener('click',()=>{if(cfg.user?.termsRequired&&!$('terms-sheet').open)$('terms-sheet').showModal();});
+  $('terms-consent').addEventListener('change',()=>{$('terms-continue').disabled=!$('terms-consent').checked||!cfg.legalReady;});
+  $('terms-continue').addEventListener('click',async()=>{try{await api('/api/account/terms',{method:'POST',body:JSON.stringify({terms:cfg.termsVersion})});cfg.user.termsRequired=false;$('terms-sheet').close();}catch(e){$('terms-error').textContent=e.message;}});
 
   // ---------- library ----------
   async function showRoom(){
     const ret=new URLSearchParams(location.search).get('return');
     if(/^\/practice\/[a-f0-9]{32}$/.test(ret||'')){location.assign(ret);return;}
     show('library');await library();
+    if(cfg.user?.termsRequired){$('terms-sheet').showModal();if(!cfg.legalReady)$('terms-error').textContent='Updated terms are not available yet. Please sign out and try again later.';}
     const active=sessionStorage.getItem('choreo-active');
     if(active)watch(active);
   }
@@ -85,7 +99,8 @@
     const t=document.createElement('span');t.className='t';
     const title=document.createElement('b');title.textContent=p.name;t.append(title);
     const chip=(cls,text)=>{const s=document.createElement('span');s.className='st '+cls;s.textContent=text;t.append(s);};
-    if(p.status==='ready'){
+    if(p.hold){chip('paused','Under review');openBtn.addEventListener('click',()=>toast('This video is unavailable while it is being reviewed.'));}
+    else if(p.status==='ready'){
       const small=document.createElement('small');small.textContent=daysLeft(p.expires);t.append(small);
       openBtn.addEventListener('click',()=>location.assign('/practice/'+p.id));openBtn.setAttribute('aria-label',`Open ${p.name}`);
     }else if(p.status==='uploading'&&!(busy&&projectId===p.id)){
@@ -99,7 +114,7 @@
     openBtn.append(thumb,t);row.append(openBtn);
     const more=document.createElement('button');more.className='ib';more.setAttribute('aria-label',`More for ${p.name}`);
     more.innerHTML='<svg class="i"><use href="#i-more"/></svg>';
-    more.addEventListener('click',()=>{cardProject=p;$('card-title').textContent=p.name;$('card-share').hidden=p.status!=='ready';open('card-sheet');});
+    more.addEventListener('click',()=>{cardProject=p;$('card-title').textContent=p.name;$('card-share').hidden=p.status!=='ready'||p.hold;open('card-sheet');});
     row.append(more);
     return row;
   }
@@ -107,6 +122,7 @@
     clearTimeout(libTimer);
     let data;
     try{data=await api('/api/projects');}catch(e){if(e.status===401){csrf='';show('welcome');return;}message(e.message);return;}
+    cfg=await api('/api/bootstrap');updateAccount();
     const list=$('projects');list.replaceChildren();
     if(!data.projects.length){const p=document.createElement('p');p.className='empty';p.textContent='No videos yet. Add a practice clip to get started.';list.append(p);}
     for(const p of data.projects)list.append(card(p));
@@ -133,6 +149,7 @@
   // ---------- choosing a file ----------
   async function choose(f){
     message('');if(!f||busy)return;
+    if(cfg.user?.termsRequired||cfg.user?.uploadHold||(cfg.uploadsPaused&&!cfg.user?.admin)){message('Uploads are paused right now.');return;}
     if(resuming){
       if(f.size!==resuming.bytes){message(`That's a different file. Choose “${resuming.name}” to continue.`);return;}
       file=f;await sendParts();return;
@@ -206,7 +223,8 @@
     clearTimeout(pollTimer);projectId=id;
     try{
       const p=await api('/api/projects/'+id);
-      if(p.status==='ready'){sessionStorage.removeItem('choreo-active');location.assign('/practice/'+id);return;}
+      if(p.hold){chip('paused','Under review');openBtn.addEventListener('click',()=>toast('This video is unavailable while it is being reviewed.'));}
+    else if(p.status==='ready'){sessionStorage.removeItem('choreo-active');location.assign('/practice/'+id);return;}
       if(p.status==='failed'){sessionStorage.removeItem('choreo-active');show('library');message(p.error||'Something went wrong with this video. Try again, or ask the person who runs this site.');library();return;}
       if(p.status==='uploading'){if(!busy)paused(p);return;}
       if($('progress').hidden||$('progress-name').textContent!==p.name)progressView(p.name,mb(p.bytes));
@@ -228,14 +246,24 @@
   });
   $('progress-back').addEventListener('click',()=>{clearTimeout(pollTimer);if(!busy)resuming=null;show('library');library();});
 
+  function updateAccount(){
+    $('signout').textContent=cfg.user?.email||'Account';
+    const hold=cfg.user?.uploadHold,paused=cfg.uploadsPaused&&!cfg.user?.admin;
+    $('upload-banner').hidden=!(hold||paused);$('upload-banner').textContent=hold?'Uploads are paused for this account while a recent video is reviewed. Check your email.':'Uploads are paused right now. Your videos still work.';
+    $('dropzone').hidden=!!(hold||paused);document.querySelector('.lib-h label').hidden=!!(hold||paused);
+    $('legal-footer').hidden=!cfg.legalReady;
+  }
   // ---------- start ----------
   (async()=>{
     try{
       cfg=await api('/api/bootstrap');csrf=cfg.csrf||'';
       $('limits').textContent=`MP4, MOV or WebM · up to ${Math.round(cfg.maxBytes/1e6)} MB and ${Math.round(cfg.maxDuration/60)} min · kept ${cfg.retentionDays} days`;
+      updateAccount();$('google-signin').hidden=!cfg.googleSignIn;$('login-form').hidden=!cfg.emailSignIn;$('signin-or').hidden=!(cfg.googleSignIn&&cfg.emailSignIn);$('consent').parentElement.hidden=!cfg.legalReady;
+      $('signin-notice').textContent=(!cfg.emailSignIn&&!cfg.googleSignIn)?'Sign-in is not available right now.':!cfg.signupsOpen?'New sign-ups are paused. If you already have an account, sign in below.':'';enableSignin();
       const hours=Math.round((cfg.sessionSeconds||28800)/3600);
       $('unlock-note').textContent=`Stays unlocked on this device for ${hours>=48?Math.round(hours/24)+' days':hours+' hours'}.`;
       if(csrf)await showRoom();
+      else if(new URLSearchParams(location.search).has('signin')){const url=new URL(location.href),code=url.searchParams.get('signin');showUnlock();message(({cancelled:'Sign-in was cancelled.',expired:'That sign-in attempt expired. Try again.',unavailable:"Google sign-in isn't available right now. Try the email link.",failed:"We couldn't sign you in with that account.",closed:"five·six isn't taking new sign-ups right now.",terms:'Tick the box to accept the terms, then try again.',conflict:'This email is linked to a different Google account. Use the email link instead.',verify_email:'Check your inbox to confirm this email address and finish signing in.'})[code]||'Please try signing in again.');url.searchParams.delete('signin');history.replaceState(null,'',url.pathname+url.search);}
       else if(new URLSearchParams(location.search).get('return'))showUnlock();
       else show('welcome');
     }catch(e){show('welcome');message("Can't reach five·six right now. Check your connection and reload.");}

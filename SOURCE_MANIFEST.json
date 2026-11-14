@@ -70,5 +70,11 @@
   "tests/test_service.py": "a58c469fd80e20f2d6f763e1526a96965aa48672ada6310536eb0d9af01b0dd8",
   "tests/test_slow_audio.py": "6cba1f4bc6df6ebbcf460e095ec3ea3ec83df0c3c899db31d7fde02decba6007",
   "tests/timing_controls.py": "58ec511ac7848d5dc09e19a03cb873821deac0eb5df9fa209e25a8cec92f6d28",
-  "uv.lock": "1adf22bc6ff9fccc8df1b937c34b38126e1e7e4d2128c41f80a71ab41c146488"
+  "uv.lock": "1adf22bc6ff9fccc8df1b937c34b38126e1e7e4d2128c41f80a71ab41c146488",
+  "disposable_email_domains": {
+    "repository": "https://github.com/disposable-email-domains/disposable-email-domains",
+    "commit": "ba992a0b4c867db3ff39605696bb7de9fbb2e11f",
+    "license": "CC0-1.0",
+    "sha256": "8a303e28fe2704fc20e73bd320cb9f47e8b3658adc0ebb046260d5acf59c27c2"
+  }
 }
