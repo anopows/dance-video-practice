@@ -13,3 +13,19 @@ jobs:
           python-version: "3.12"
       - run: sudo apt-get update -qq && sudo apt-get install -y ffmpeg rubberband-cli fonts-dejavu-core
       - run: bash scripts/check.sh
+
+  rollout-foundations:
+    # Verify the already-published M1 revision before deploying it with the
+    # existing room login. No additional public branch is needed for rollout.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/launch/m3'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 39a68e43b1b08e726ac2d13ef7b118cf6134dcb0
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff
+        with:
+          version: "0.9.8"
+          python-version: "3.12"
+      - run: sudo apt-get update -qq && sudo apt-get install -y ffmpeg rubberband-cli fonts-dejavu-core
+      - run: bash scripts/check.sh
