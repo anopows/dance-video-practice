@@ -1,3 +1,15 @@
+# Version 2.1 monthly guard (current)
+
+This section supersedes lifetime allowances in the historical installation notes below. New guards use 5,000,000 operations, 1,200,000,000,000 uploaded bytes and 5,000,000,000,000 served bytes per UTC calendar month. Counts are reserved before each SDK network attempt, including retries. Every operation is charged conservatively as Standard Class A; this yields a $22.50/month request allowance before free tier. Storage at the 2 TB cap is $30/month at the recorded Standard price. This bounds application activity, not a contractual Cloudflare invoice ceiling.
+
+Before starting version 2.1 on an existing installation, stop API and worker, back up both databases, and run `scripts/r2-guard.py migrate-monthly` as the service user. It preserves all counters and stop state and is idempotent. A month change resets counters but never releases a stop. To resume, review provider billing and the trigger, then use `resume --reviewed`. Never delete or recreate the guard file as a recovery shortcut.
+
+Upload admission checks source-byte reservations at 90% of the storage cap. The worker inventories deterministic object keys and reserves the derived total before uploading; partial failures remain conservatively counted until cleanup or retry. Each project is limited to 50 GB of requested media per UTC day; HEAD does not consume this allowance. A request that would exceed the remaining amount is refused before its body is fetched. Originals are removed after analysis and retried by cleanup when deletion fails.
+
+Keep the account budget alert at $60, with matching account and policy IDs and the secret webhook. Scope runtime R2 credentials to this bucket and the host IPs. Backups use separate bucket-scoped credentials and the 30-day backup lifecycle. Verify provider prices and included host traffic at deployment; R2 free egress does not remove the host's traffic limits.
+
+## Historical setup and provider configuration
+
 # R2 cost safeguard
 
 The runtime can enforce persistent allowances **before** each S3 request, including

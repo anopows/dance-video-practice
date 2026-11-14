@@ -22,5 +22,22 @@
     "model": "htdemucs_6s",
     "package": "demucs==4.0.1",
     "source": "https://github.com/facebookresearch/demucs"
+  },
+  "nsfw": {
+    "repository": "Falconsai/nsfw_image_detection",
+    "revision": "96cb0d0342c7afb80cab76ecc58b265fa44da256",
+    "license": "Apache-2.0",
+    "files": {
+      "config.json": "cd8c0a19566f199b5c64da402f1d6a9daf80d094fe6536befb060a2cc59449c2",
+      "preprocessor_config.json": "a34861a24e781942424ad790b82bc99348404a2e64ea882de88c40905851698d",
+      "model.safetensors": "97b2ce64ec146884b37f98ee7944ca4891aa72f6827dc0cb10684a1cbecd5830"
+    }
+  },
+  "person": {
+    "model": "ssdlite320_mobilenet_v3_large",
+    "weights": "COCO_V1",
+    "url": "https://download.pytorch.org/models/ssdlite320_mobilenet_v3_large_coco-a79551df.pth",
+    "file": "ssdlite320_mobilenet_v3_large_coco-a79551df.pth",
+    "sha256": "a79551df90c79834bcd3bb3845ef9d966b5449a3a9b2833ae8404778ca5d65d2"
   }
 }

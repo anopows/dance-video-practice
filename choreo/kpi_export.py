@@ -7,6 +7,9 @@ import time
 from . import kpi
 from .db import Database
 from .limits import EXPORT_QUEUE_LIMIT
+from .quotas import STORED_BYTES_SQL
+from .config import Settings
+from .r2_guard import R2Guard,CostLimit
 
 def main():
     parser=argparse.ArgumentParser(); parser.add_argument('path'); args=parser.parse_args()
@@ -17,7 +20,16 @@ def main():
         for status, n in con.execute("SELECT status,count(*) FROM projects WHERE expires>? AND status NOT IN ('deleted','expired') GROUP BY status",(now,)):
             if status in ('creating','uploading','completing','queued','processing','ready','failed'):
                 gauges['projects.'+status]=n
-        gauges['stored_bytes']=con.execute("SELECT coalesce(sum(bytes),0) FROM projects WHERE status='ready' AND expires>?",(now,)).fetchone()[0]
+        version=con.execute('PRAGMA user_version').fetchone()[0]
+        if version>=1:
+            gauges['stored_bytes']=con.execute(STORED_BYTES_SQL).fetchone()[0]
+            gauges['users_total']=con.execute('SELECT count(*) FROM users').fetchone()[0]
+            gauges['open_reports']=con.execute("SELECT count(*) FROM reports WHERE status='open'").fetchone()[0]
+        else:
+            gauges['stored_bytes']=con.execute("SELECT coalesce(sum(bytes),0) FROM projects WHERE status='ready' AND expires>?",(now,)).fetchone()[0]
+        gauges['storage_cap_bytes']=Settings().storage_cap_bytes
+        try: gauges['guard_stopped']=int(bool(R2Guard(root/'r2-guard.sqlite3').status()['stopped']))
+        except CostLimit:gauges['guard_stopped']=1
         gauges['queue_limit']=EXPORT_QUEUE_LIMIT
         gauges['projects_ready']=con.execute("SELECT count(*) FROM projects WHERE status='ready' AND expires>?",(now,)).fetchone()[0]
         gauges['queue']=con.execute("SELECT count(*) FROM jobs WHERE status IN ('queued','processing')").fetchone()[0]

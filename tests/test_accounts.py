@@ -109,3 +109,63 @@ def test_admin_stepup_and_old_password_route(room):
     assert c.get('/api/bootstrap').json()['user']['adminUnlocked']
     c.post('/api/logout',json={});unlock(c,'other@example.com')
     assert c.post('/api/admin/unlock',json={'password':'test-pass','token':'other'}).status_code==404
+
+
+@pytest.mark.parametrize('failure',['none','state','cookie','nonce','email_verified','aud'])
+def test_google_callback_flow_with_provider_standin(room,failure):
+    c,old,cfg,store=room;cfg.google_client_id='client';cfg.google_client_secret='secret'
+    captured={}
+    class Provider:
+        async def exchange(self,code,verifier):
+            assert code=='code' and verifier==captured['verifier']
+            claims={'sub':'stable-subject','nonce':captured['nonce'],'email':'new@gmail.com','email_verified':True,'aud':'client','iss':'https://accounts.google.com','iat':time.time(),'exp':time.time()+300}
+            if failure in ('nonce','aud'):claims[failure]='wrong'
+            if failure=='email_verified':claims['email_verified']=False
+            return claims
+    from choreo.api import create_app
+    app=create_app(cfg,store,testing=True,google=Provider(),mailer=c.messages.append)
+    c=TestClient(app,base_url=cfg.origin);c.headers['Origin']=cfg.origin
+    start=c.get('/auth/google/start?terms=1',follow_redirects=False);assert start.status_code==302
+    state=parse_qs(urlparse(start.headers['location']).query)['state'][0]
+    with app.state.db.connect() as db:captured.update(dict(db.execute('SELECT * FROM oauth_states').fetchone()))
+    if failure=='state':state='wrong'
+    if failure=='cookie':c.cookies.clear()
+    response=c.get('/auth/google/callback',params={'state':state,'code':'code'},follow_redirects=False)
+    assert response.status_code==303 and 'Max-Age=0' in response.headers['set-cookie']
+    if failure=='none':
+        assert response.headers['location']=='/'
+        assert c.get('/api/bootstrap').json()['user']['email']=='new@gmail.com'
+    else:assert response.headers['location']=='/?signin='+('expired' if failure in ('state','cookie') else 'failed')
+    assert c.get('/auth/google/callback',params={'state':state,'code':'code'},follow_redirects=False).headers['location']=='/?signin=expired'
+
+
+def test_google_linking_and_banned_subject(room):
+    _,app,cfg,*_=room
+    with app.state.db.connect(write=True) as db:
+        user,err=resolve_account(db,cfg,app.state.legal,'user@gmail.com','user@gmail.com',None,1);assert not err
+        linked,err=resolve_account(db,cfg,app.state.legal,'user+tag@gmail.com','user@gmail.com','subject',1);assert not err and linked['id']==user['id']
+        assert resolve_account(db,cfg,app.state.legal,'user@gmail.com','user@gmail.com','different',1)[1]=='conflict'
+    app.state.moderation.user_action(user['id'],'ban','test','cli')
+    with app.state.db.connect(write=True) as db:
+        assert resolve_account(db,cfg,app.state.legal,'changed@gmail.com','changed@gmail.com','subject',1)[1]=='banned'
+
+
+@pytest.mark.parametrize('bucket',['address','ip'])
+def test_email_send_limits_cannot_be_bypassed(room,bucket):
+    c,app,*_=room
+    allowed=3 if bucket=='address' else 5
+    for i in range(allowed+1):
+        email='same@example.com' if bucket=='address' else f'dancer{i}@example.com'
+        response=c.post('/api/auth/email',json={'email':email,'token':uuid.uuid4().hex,'terms':1})
+        assert response.status_code==(200 if i<allowed else 429),response.text
+    assert len(c.messages)==allowed
+    assert int(response.headers['retry-after'])>0
+
+
+def test_expired_confirmation_never_creates_session(room):
+    c,app,*_=room
+    assert c.post('/api/auth/email',json={'email':'admin@example.com','token':'expiring','terms':1}).status_code==200
+    token=re.search('#t=([A-Za-z0-9_-]+)',c.messages[-1].get_body(preferencelist=('plain',)).get_content()).group(1)
+    with app.state.db.connect(write=True) as con:con.execute('UPDATE login_tokens SET expires=?',(time.time()-1,))
+    assert c.post('/api/auth/email/confirm',json={'token':token}).status_code==400
+    with app.state.db.connect() as con:assert con.execute('SELECT count(*) FROM sessions').fetchone()[0]==0

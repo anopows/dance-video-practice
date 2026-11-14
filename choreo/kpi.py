@@ -9,6 +9,8 @@ import time
 from pathlib import Path
 
 KPI_VERSION = 1
+# Fixed public-launch counters; never derive a metric name from user input.
+LAUNCH_METRICS = ('signin.email.requested', 'signin.email.ok', 'signin.google.ok', 'signin.failed', 'signup.new', 'signup.closed', 'upload.rejected.storage', 'screen.rejected.nsfw', 'screen.rejected.no_person', 'report.created', 'admin.action', 'media.capped')
 BOUNDS = (1, 2, 5, 10, 20, 30, 60, 120, 300, 600, 1800)
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS kpi_daily(day TEXT NOT NULL, metric TEXT NOT NULL,

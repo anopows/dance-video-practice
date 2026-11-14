@@ -35,6 +35,8 @@ def test_worker_ready_and_retry_failure(room, monkeypatch):
         returncode=0
         def __init__(self,*args,**kwargs):
             (w.jobs/job['id']/'analysis.json').write_text('{}')
+            (w.jobs/job['id']/'screen.json').write_text('{"version":1,"result":"pass"}')
+            for name in ('practice.mp4','poster.jpg','bass.mp4','drums.mp4','piano.mp4','guitar.mp4'):(w.jobs/job['id']/name).write_bytes(b'output')
         def poll(self): return 0
     job=w.claim(); monkeypatch.setattr(worker.subprocess,'Popen',Success);w.process(job)
     got=totals(app);assert got['job.analyze.ready']==1

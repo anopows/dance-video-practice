@@ -14,6 +14,11 @@ from .config import settings
 from .db import Database, kpi_count
 from . import kpi
 from .storage import Storage
+from .r2_guard import CostLimit
+from .quotas import STORED_BYTES_SQL
+from .mail import Mailer
+from .moderation import audit
+from datetime import datetime,timezone,timedelta
 from .slow_audio import SLOW_MEDIA
 
 LOG = logging.getLogger("choreo.worker")
@@ -36,6 +41,7 @@ def sandbox(folder, models):
         "--chdir", str(ROOT)]
     for key, value in {"PATH": f"{ROOT}/.venv/bin:/usr/bin:/bin", "HOME": "/tmp",
         "PYTHONPATH": str(ROOT), "PYTHONDONTWRITEBYTECODE": "1", "TORCH_HOME": "/models/torch",
+        "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1", "HF_HOME": "/tmp/hf",
         "NUMBA_CACHE_DIR": "/tmp/numba", "OMP_NUM_THREADS": "3", "MKL_NUM_THREADS": "3",
         "OPENBLAS_NUM_THREADS": "3", "MPLCONFIGDIR": "/tmp/matplotlib", "LANG": "C.UTF-8"}.items():
         args.extend(["--setenv", key, value])
@@ -59,6 +65,7 @@ class Worker:
         self.db.migrate(cfg)
         self.last_kind = "export"
         self.store = storage or Storage(cfg)
+        self.mail = Mailer(cfg,self.db)
         self.jobs = cfg.state_dir/"jobs"
         self.jobs.mkdir(mode=0o700, exist_ok=True)
 
@@ -70,24 +77,35 @@ class Worker:
         now = time.time()
         with self.db.connect(write=True) as con:
             kpi_count(con,kpi.prune,now=now)
-            expired=con.execute("UPDATE projects SET status='expired',cleanup_done=0 WHERE expires<=? AND status NOT IN ('deleted','expired')", (now,)).rowcount
+            expired=con.execute("UPDATE projects SET status='expired',cleanup_done=0 WHERE expires<=? AND status NOT IN ('deleted','expired','removed','quarantined')", (now,)).rowcount
             if expired: kpi_count(con,kpi.bump,'project.expired',expired)
             abandoned=con.execute("UPDATE projects SET status='failed',error='This upload took too long and expired. Add the video again.' WHERE status IN ('uploading','creating','completing') AND upload_deadline<=?", (now,)).rowcount
             if abandoned: kpi_count(con,kpi.bump,'upload.abandoned',abandoned)
-            rows = con.execute("SELECT * FROM projects WHERE status IN ('deleted','expired','failed') AND cleanup_done=0").fetchall()
+            rows = con.execute("SELECT * FROM projects WHERE status IN ('deleted','expired','failed','removed') AND cleanup_done=0").fetchall()
             con.execute("DELETE FROM requests WHERE stamp<?", (now-86400,))
             con.execute("DELETE FROM proofs WHERE stamp<?", (now-600,))
             con.execute("DELETE FROM sessions WHERE expires<?", (now,))
+            con.execute('DELETE FROM login_tokens WHERE expires<?',(now-86400,))
+            con.execute('DELETE FROM oauth_states WHERE created<?',(now-600,))
+            con.execute('DELETE FROM egress WHERE day<?',((datetime.now(timezone.utc)-timedelta(days=1)).strftime('%Y-%m-%d'),))
+            con.execute('DELETE FROM upload_records WHERE created<?',(now-180*86400,))
+            con.execute('DELETE FROM reports WHERE resolved<?',(now-365*86400,))
+            con.execute('DELETE FROM audit WHERE at<?',(now-365*86400,))
+            old=[p[0] for p in con.execute('SELECT id FROM projects WHERE cleanup_done=1 AND updated<?',(now-180*86400,))]
+            for pid in old:
+                con.execute('DELETE FROM parts WHERE project=?',(pid,));con.execute('DELETE FROM jobs WHERE project=?',(pid,));con.execute('DELETE FROM projects WHERE id=?',(pid,))
+            originals=con.execute("SELECT id FROM projects WHERE status='ready' AND original_stored=1 AND updated<?",(now-300,)).fetchall()
+        for row in originals:self.delete_original(row['id'])
         for p in rows:
             try:
                 if p["upload_id"]:
                     self.store.abort(p["id"], p["upload_id"])
                 self.store.delete_project(p["id"])
                 with self.db.connect(write=True) as con:
-                    con.execute("UPDATE projects SET cleanup_done=1,analysis=NULL,alignment='{}',name=CASE WHEN status='failed' THEN name ELSE 'Deleted video' END WHERE id=?", (p["id"],))
+                    con.execute("UPDATE projects SET cleanup_done=1,stored_bytes=0,original_stored=0,analysis=NULL,alignment='{}',name=CASE WHEN status='failed' THEN name ELSE 'Deleted video' END WHERE id=?", (p["id"],))
                     con.execute("UPDATE jobs SET status='cancelled' WHERE project=? AND status='queued'", (p["id"],))
                     con.execute("DELETE FROM parts WHERE project=?", (p["id"],))
-                    if p["status"] in ("deleted", "expired"):
+                    if p["status"] in ("deleted", "expired", "removed"):
                         con.execute("DELETE FROM jobs WHERE project=?", (p["id"],))
             except Exception:
                 LOG.exception("Cleanup failed for project %s; will retry", p["id"])
@@ -109,8 +127,12 @@ class Worker:
                 shutil.rmtree(p)
 
     def claim(self):
+        if getattr(self.store,'guard',None):
+            try:
+                if self.store.guard.status()['stopped']:return None
+            except CostLimit:return None
         with self.db.connect(write=True) as con:
-            job = con.execute("SELECT j.* FROM jobs j JOIN projects p ON p.id=j.project WHERE j.status='queued' AND p.expires>? AND p.status NOT IN ('deleted','expired','failed') ORDER BY (j.kind=?) ASC,j.created LIMIT 1", (time.time(),self.last_kind)).fetchone()
+            job = con.execute("SELECT j.* FROM jobs j JOIN projects p ON p.id=j.project WHERE j.status='queued' AND p.expires>? AND p.hold=0 AND p.status NOT IN ('deleted','expired','failed','removed','quarantined') ORDER BY (j.kind=?) ASC,j.created LIMIT 1", (time.time(),self.last_kind)).fetchone()
             if not job:
                 return None
             self.last_kind=job["kind"]
@@ -150,8 +172,8 @@ class Worker:
                     if time.monotonic()-started > 3600:
                         raise RuntimeError("Processing time limit exceeded")
                     with self.db.connect(write=True) as con:
-                        live = con.execute("SELECT status,expires FROM projects WHERE id=?", (p["id"],)).fetchone()
-                        if live["status"] in ("deleted", "expired") or live["expires"] <= time.time():
+                        live = con.execute("SELECT status,expires,hold FROM projects WHERE id=?", (p["id"],)).fetchone()
+                        if not live or live["status"] in ("deleted", "expired", "removed", "quarantined") or live["hold"] or live["expires"] <= time.time():
                             raise RuntimeError("Project cancelled or expired")
                         con.execute("UPDATE jobs SET updated=? WHERE id=?", (time.time(), job["id"]))
                         progress = folder/"progress.json"
@@ -165,50 +187,91 @@ class Worker:
                     LOG.error("Job %s failed: %s", job["id"], (folder/"process.log").read_text(errors="replace")[-6000:])
                     raise RuntimeError("Sandbox failed")
             with self.db.connect() as con:
-                live = con.execute("SELECT status,expires FROM projects WHERE id=?", (p["id"],)).fetchone()
-            if live["expires"] <= time.time() or live["status"] in ("deleted", "expired"):
+                live = con.execute("SELECT status,expires,hold FROM projects WHERE id=?", (p["id"],)).fetchone()
+            if not live or live["expires"] <= time.time() or live["hold"] or live["status"] in ("deleted", "expired", "removed", "quarantined"):
                 raise RuntimeError("Project expired before publication")
-            if job["kind"] == "analyze":
-                analysis = json.loads((folder/"analysis.json").read_text())
-                for name, mime in (("practice.mp4", "video/mp4"), ("poster.jpg", "image/jpeg"), ("analysis.json", "application/json")):
-                    self.store.upload(prefix+name, folder/name, mime)
-                for name in ("bass", "drums", "piano", "guitar"):
-                    self.store.upload(prefix+f"{name}.mp4", folder/f"{name}.mp4", "video/mp4")
-                for rate, name in SLOW_MEDIA.items():
-                    if rate in analysis.get("slowPlayback", {}).get("rates", []):
-                        self.store.upload(prefix+name, folder/name, "video/mp4")
-                with self.db.connect(write=True) as con:
-                    con.execute("UPDATE projects SET status='ready',analysis=?,error=NULL,stage=NULL,updated=? WHERE id=? AND status='processing' AND expires>?", (json.dumps(analysis, allow_nan=False), time.time(), p["id"], time.time()))
-                    con.execute("UPDATE jobs SET status='ready',updated=? WHERE id=?", (time.time(), job["id"]))
-                    kpi_count(con,kpi.bump,'job.analyze.ready')
-                    kpi_count(con,kpi.observe,'analyze_s',time.monotonic()-process_started)
+            if job['kind']=='analyze':
+                analysis=json.loads((folder/'analysis.json').read_text())
+                screening=json.loads((folder/'screen.json').read_text())
+                if screening.get('version')!=1 or screening.get('result')!='pass':raise RuntimeError('Missing passing content screen')
+                names=['practice.mp4','poster.jpg','analysis.json']+[name+'.mp4' for name in ('bass','drums','piano','guitar')]
+                names += [name for rate,name in SLOW_MEDIA.items() if rate in analysis.get('slowPlayback',{}).get('rates',[])]
+                objects={prefix+name:folder/name for name in names}
             else:
-                key = prefix+f"exports/{job['id']}.mp4"
-                self.store.upload(key, folder/"export.mp4", "video/mp4")
-                with self.db.connect(write=True) as con:
-                    con.execute("UPDATE jobs SET status='ready',object_key=?,updated=? WHERE id=?", (key, time.time(), job["id"]))
-                    kpi_count(con,kpi.bump,'job.export.ready')
-                    kpi_count(con,kpi.observe,'export_s',time.monotonic()-process_started)
-        except Exception:
+                objects={prefix+f"exports/{job['id']}.mp4":folder/'export.mp4'}
+            # Account for deterministic replacements and reserve all output bytes
+            # before uploading. Partial failures remain conservatively counted.
+            inventory={o['Key']:o['Size'] for o in self.store.inventory(p['id']) if o['Key']!=prefix+'original'}
+            inventory.update({key:path.stat().st_size for key,path in objects.items()})
+            stored=sum(inventory.values())
+            with self.db.connect(write=True) as con:
+                live=con.execute('SELECT * FROM projects WHERE id=?',(p['id'],)).fetchone()
+                if not live or live['hold'] or live['status'] not in ('ready','processing') or live['expires']<=time.time():raise RuntimeError('Publication cancelled')
+                if con.execute(STORED_BYTES_SQL).fetchone()[0]-live['stored_bytes']+stored>self.cfg.storage_cap_bytes:
+                    raise RuntimeError('Storage capacity exceeded')
+                con.execute('UPDATE projects SET stored_bytes=? WHERE id=?',(stored,p['id']))
+            for key,path in objects.items():
+                mime='video/mp4' if path.suffix=='.mp4' else 'image/jpeg' if path.suffix=='.jpg' else 'application/json'
+                self.store.upload(key,path,mime)
+            with self.db.connect(write=True) as con:
+                live=con.execute('SELECT * FROM projects WHERE id=?',(p['id'],)).fetchone()
+                if not live or live['hold'] or live['status'] not in ('ready','processing') or live['expires']<=time.time():raise RuntimeError('Publication cancelled')
+                if job['kind']=='analyze':
+                    screen=(folder/'screen.json').read_text() if (folder/'screen.json').exists() else None
+                    con.execute("UPDATE projects SET status='ready',analysis=?,screen=?,error=NULL,stage=NULL,updated=? WHERE id=?",(json.dumps(analysis,allow_nan=False),screen,time.time(),p['id']))
+                    con.execute('UPDATE upload_records SET source_sha256=? WHERE project=?',(analysis.get('sourceSha256'),p['id']))
+                key=next(iter(objects)) if job['kind']=='export' else None
+                con.execute("UPDATE jobs SET status='ready',object_key=?,updated=? WHERE id=?",(key,time.time(),job['id']))
+                kpi_count(con,kpi.bump,'job.'+job['kind']+'.ready')
+                kpi_count(con,kpi.observe,job['kind']+'_s',time.monotonic()-process_started)
+            if job['kind']=='analyze':self.delete_original(p['id'])
+        except Exception as exc:
             if process:
                 stop(process)
-            validation = False
-            error = "Something went wrong with this video. Try again, or ask the person who runs this site."
-            if (folder/"error.json").exists():
-                detail = json.loads((folder/"error.json").read_text())
-                error, validation = detail["message"], detail["validation"]
-            retry = not validation and job["attempt"] < 1
+            validation=False;code=None;notify=None
+            error="Something went wrong with this video. Try again, or ask the person who runs this site."
+            if (folder/'error.json').exists():
+                detail=json.loads((folder/'error.json').read_text());error=detail['message'];validation=detail['validation'];code=detail.get('code')
+            screen=(folder/'screen.json').read_text() if (folder/'screen.json').exists() else None
+            retry=not validation and job['attempt']<1
             with self.db.connect(write=True) as con:
-                con.execute("UPDATE jobs SET status=?,error=?,updated=? WHERE id=?", ("queued" if retry else "failed", error, time.time(), job["id"]))
-                if job['kind'] in ('analyze','export'):
+                live=con.execute('SELECT * FROM projects WHERE id=?',(job['project'],)).fetchone()
+                cancelled=not live or live['status'] in ('deleted','expired','removed','quarantined') or live['expires']<=time.time()
+                paused=not cancelled and (live['hold'] or isinstance(exc,CostLimit))
+                status='cancelled' if cancelled else 'queued' if paused or retry else 'failed'
+                con.execute('UPDATE jobs SET status=?,error=?,updated=?,attempt=attempt-? WHERE id=?',(status,error,time.time(),int(paused),job['id']))
+                if not cancelled and not paused:
                     kpi_count(con,kpi.bump,'job.'+job['kind']+('.retried' if retry else '.failed'))
-                if job["kind"] == "analyze":
-                    con.execute("UPDATE projects SET status=?,error=?,updated=? WHERE id=? AND status='processing'", ("queued" if retry else "failed", error, time.time(), job["project"]))
+                if job['kind']=='analyze' and not cancelled:
+                    con.execute("UPDATE projects SET status=?,error=?,screen=coalesce(?,screen),reject_code=?,updated=? WHERE id=? AND status='processing'",('queued' if paused or retry else 'failed',error,screen,code,time.time(),job['project']))
+                    if code in ('nsfw','no_person'):kpi_count(con,kpi.bump,'screen.rejected.'+code)
+                    if code=='nsfw':
+                        rejected=con.execute("SELECT id FROM projects WHERE owner=? AND reject_code='nsfw' AND created>? ORDER BY created DESC",(live['owner'],time.time()-30*86400)).fetchall()
+                        if len(rejected)>=3 and con.execute('UPDATE users SET upload_hold=1,hold_reason=? WHERE id=? AND upload_hold=0',('auto:nsfw',live['owner'])).rowcount:
+                            audit(con,'system','upload_hold',live['owner'],'auto:nsfw')
+                            user=con.execute('SELECT email FROM users WHERE id=?',(live['owner'],)).fetchone()
+                            notify=(live['owner'],user['email'],[r['id'] for r in rejected[:3]])
+            if notify:
+                uid,email,ids=notify
+                self.mail.notify('upload_hold_user',uid,email,'Uploads paused on your five·six account',f'Three of your recent uploads were stopped by our automatic content check, so uploads are paused while we review. Your existing videos still work. If you think this is a mistake, write to {self.cfg.abuse_email}.')
+                self.mail.notify('upload_hold_admin',uid,self.cfg.abuse_email,'five·six: upload hold on '+email,f'User: {uid}\nEmail: {email}\nVideos: {", ".join(ids)}')
             LOG.exception("Job %s did not complete", job["id"])
         finally:
             if process:
                 stop(process)
             shutil.rmtree(folder, ignore_errors=True)
+
+    def delete_original(self,pid):
+        try:
+            # Serialize the small deletion with quarantine actions. Once a
+            # preservation hold exists, cleanup must not remove the original.
+            with self.db.connect(write=True) as con:
+                p=con.execute("SELECT original_stored FROM projects WHERE id=? AND status='ready'",(pid,)).fetchone()
+                if not p or not p['original_stored']:return
+                self.store.delete_original(pid)
+                con.execute('UPDATE projects SET original_stored=0 WHERE id=?',(pid,))
+        except Exception:
+            LOG.exception('Original cleanup failed for %s; will retry',pid)
 
     def run(self):
         with (self.cfg.state_dir/"worker.lock").open("w") as lock:
@@ -216,6 +279,12 @@ class Worker:
             self.recover()
             while True:
                 self.heartbeat()
+                if getattr(self.store,'guard',None):
+                    try:stopped=bool(self.store.guard.status()['stopped'])
+                    except CostLimit:stopped=True
+                    if stopped:
+                        time.sleep(60)
+                        continue
                 self.cleanup()
                 job = self.claim()
                 if job:

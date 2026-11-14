@@ -94,7 +94,7 @@ def test_actual_sdk_retries_are_counted_before_network(tmp_path):
 def guarded_app(tmp_path):
     with mock_aws():
         R2Guard.initialize(tmp_path/'r2-guard.sqlite3', media_bytes=100)
-        cfg = Settings(origin='https://practice.test', state_dir=tmp_path,
+        cfg = Settings(origin='https://practice.test', state_dir=tmp_path,admin_email='admin@example.com',secret_key='s'*32,
             r2_guard_enabled=True, r2_secret_key='test-secret', r2_access_key='test',
             r2_bucket='test-bucket', r2_endpoint='https://s3.amazonaws.com',
             r2_webhook_secret='webhook-secret', r2_budget_policy_id='policy', r2_account_id='account')

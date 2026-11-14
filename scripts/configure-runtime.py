@@ -9,6 +9,7 @@ import argparse
 import getpass
 import json
 import os
+import secrets
 from pathlib import Path
 import sys
 import tempfile
@@ -22,16 +23,22 @@ from choreo.config import Settings
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("r2_credentials", type=Path)
+    parser.add_argument("--account-config",type=Path,required=True,help="Root-only JSON of admin_email, abuse_email and SMTP/Google settings")
     parser.add_argument("--password-stdin", action="store_true")
     parser.add_argument("--config",type=Path,default=ROOT/"deploy/cloudflare-config.json")
     args = parser.parse_args()
     if os.geteuid() != 0:
         raise SystemExit("Run as root to install the root-only environment file.")
+    if Path("/etc/choreo.env").exists():
+        raise SystemExit("Existing environment must be upgraded in place; refusing to rotate secrets or overwrite configuration.")
+    account=json.loads(args.account_config.read_text())
+    allowed={"admin_email","abuse_email","smtp_host","smtp_port","smtp_user","smtp_password","mail_from","google_client_id","google_client_secret","legal_dir"}
+    if set(account)-allowed:raise SystemExit("Unexpected account setting")
     config = json.loads(args.config.read_text())
     credentials = json.loads(args.r2_credentials.read_text())
     turnstile = dict(line.split("=", 1) for line in
                      Path("/etc/choreo-turnstile.env").read_text().splitlines() if line)
-    password = sys.stdin.readline().rstrip("\n") if args.password_stdin else getpass.getpass("Room password: ")
+    password = sys.stdin.readline().rstrip("\n") if args.password_stdin else getpass.getpass("Admin step-up password: ")
     if not password or len(password) > 128:
         raise SystemExit("Use a nonempty password of at most 128 characters.")
     values = {
@@ -46,6 +53,8 @@ def main():
         "r2_access_key": credentials["access_key_id"],
         "r2_secret_key": credentials["secret_access_key"],
     }
+    values.update({key:str(value) for key,value in account.items()})
+    values.update(secret_key=secrets.token_urlsafe(48),r2_guard_enabled="true")
     if any(not isinstance(v, str) or any(c in v for c in "\r\n\x00") for v in values.values()):
         raise SystemExit("Invalid environment value; no configuration written.")
     Settings(**values).validate_production()
@@ -54,7 +63,8 @@ def main():
     try:
         with os.fdopen(fd, "w") as output:
             for key, value in values.items():
-                output.write(f"CHOREO_{key.upper()}={value}\n")
+                escaped=value.replace("\\","\\\\").replace('"','\\"')
+                output.write(f'CHOREO_{key.upper()}="{escaped}"\n')
             output.flush()
             os.fsync(output.fileno())
         os.replace(temporary, "/etc/choreo.env")

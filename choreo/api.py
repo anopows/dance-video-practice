@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+from datetime import datetime, timezone, timedelta
 import hmac
 import ipaddress
 import html
@@ -264,8 +265,22 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False, mailer=None
         with db.connect() as con:
             media_project = public_project(con, key.split('/')[1], visitor)
             if media_project["status"] != "ready": raise HTTPException(404, "Video not found.")
+        def admit_media(count):
+            now=datetime.now(timezone.utc);day=now.strftime('%Y-%m-%d')
+            with db.connect(write=True) as con:
+                # Recheck after storage metadata I/O so a concurrent hold wins.
+                public_project(con,media_project['id'],visitor)
+                used=con.execute('SELECT bytes FROM egress WHERE project=? AND day=?',(media_project['id'],day)).fetchone()
+                # A request may not overshoot the ceiling by one complete file.
+                if (used[0] if used else 0)+count>cfg.project_egress_day_bytes:
+                    midnight=(now+timedelta(days=1)).replace(hour=0,minute=0,second=0,microsecond=0)
+                    reject_limit((midnight-now).total_seconds(),'This video has been played a lot today. Try again tomorrow.')
+                con.execute('INSERT INTO egress VALUES (?,?,?) ON CONFLICT(project,day) DO UPDATE SET bytes=bytes+excluded.bytes',(media_project['id'],day,count))
         try:
-            status, headers, body = store.open_media(key, request.headers.get('range'), request.method == 'HEAD')
+            status, headers, body = store.open_media(key, request.headers.get('range'), request.method == 'HEAD',admit=admit_media)
+        except HTTPException as exc:
+            if exc.status_code==429:best_count(db,kpi.bump,'media.capped')
+            raise
         except store.client.exceptions.ClientError:
             raise HTTPException(503, 'Media is temporarily unavailable.')
         if download:
@@ -302,7 +317,7 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False, mailer=None
             raise HTTPException(400, 'Unexpected alert')
         if payload.get('alert_event') == 'ALERT_STATE_EVENT_END':
             return {'ok': True, 'ignored': True}
-        store.guard.stop('Cloudflare $200 account budget alert')
+        store.guard.stop('Cloudflare account budget alert')
         return {'ok': True, 'stopped': True}
 
     @app.get("/healthz")
@@ -365,6 +380,9 @@ def create_app(cfg=None, storage=None, verifier=None, testing=False, mailer=None
                 'termsVersion':config.TERMS_VERSION,'emailSignIn':bool(cfg.smtp_host),'googleSignIn':bool(cfg.google_client_id),
                 'signupsOpen':legal.ready and count<cfg.signup_cap,'uploadsPaused':not flag or flag[0]=='1',
                 'legalReady':legal.ready,'user':user,**auth}
+
+    from .moderation import install_routes as install_moderation
+    install_moderation(app,cfg,db,store,legal,origin,session,ip,rate,verify)
 
     @app.post("/api/logout")
     def logout(request: Request, response: Response):

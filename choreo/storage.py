@@ -99,7 +99,7 @@ class Storage:
             and download in (0, 1) and time.time() < expires <= time.time()+901
             and hmac.compare_digest(sig, self.media_signature(key, expires, download)))
 
-    def open_media(self, key, range_header=None, head=False):
+    def open_media(self, key, range_header=None, head=False, admit=None):
         self.guard.reserve()
         metadata = self.client.head_object(Bucket=self.bucket, Key=key)
         size = metadata['ContentLength']
@@ -122,6 +122,7 @@ class Storage:
             status = 206
             headers['Content-Range'] = f'bytes {start}-{end}/{size}'
             headers['Content-Length'] = str(end-start+1)
+        if admit:admit(int(headers['Content-Length']))
         self.guard.reserve(media_bytes=int(headers['Content-Length']))
         params = {'Bucket': self.bucket, 'Key': key, 'IfMatch': metadata['ETag']}
         if status == 206:
@@ -133,3 +134,9 @@ class Storage:
         for page in self.client.get_paginator("list_objects_v2").paginate(Bucket=self.bucket, Prefix=f"projects/{project}/"):
             for item in page.get("Contents", []):
                 self.client.delete_object(Bucket=self.bucket, Key=item["Key"])
+
+    def inventory(self, project):
+        return [item for page in self.client.get_paginator('list_objects_v2').paginate(Bucket=self.bucket,Prefix=f'projects/{project}/') for item in page.get('Contents',[])]
+
+    def delete_original(self, project):
+        self.client.delete_object(Bucket=self.bucket,Key=self.original(project))

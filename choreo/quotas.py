@@ -23,7 +23,7 @@ def admit(con,cfg,user,iphash,size,now):
     flag=con.execute("SELECT value FROM flags WHERE key='uploads_paused'").fetchone()
     if (not flag or flag[0]=='1') and not is_admin(cfg,user):
         refuse(503,'Uploads are paused right now. Please try again later.',3600)
-    if con.execute(STORED_BYTES_SQL).fetchone()[0] >= cfg.storage_cap_bytes*9//10:
+    if con.execute(STORED_BYTES_SQL).fetchone()[0]+size > cfg.storage_cap_bytes*9//10:
         refuse(503,'five·six is full right now. Please try again in a few days.',86400)
     if con.execute("SELECT 1 FROM projects WHERE owner=? AND status IN ('creating','uploading','completing','queued','processing') AND expires>? AND (status NOT IN ('creating','uploading','completing') OR upload_deadline>?)",(user['user_id'],now,now)).fetchone():
         refuse(429,'Your other video is still uploading or being prepared. Wait for it to finish, then add this one.',30)

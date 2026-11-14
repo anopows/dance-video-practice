@@ -1,10 +1,11 @@
-"""Fail-closed, lifetime R2 allowances. No clock-based or restart resets.
+"""Fail-closed monthly R2 allowances with a persistent manual stop latch.
 
 Every actual S3 attempt (including SDK retries) reserves one operation before
 network I/O. Charging every operation at Standard Class A pricing is deliberately
 conservative. Byte reservations are never refunded after retries or deletions.
 """
 import contextlib
+from datetime import datetime, timezone
 import sqlite3
 import time
 from pathlib import Path
@@ -19,8 +20,8 @@ class R2Guard:
         self.path = Path(path)
 
     @classmethod
-    def initialize(cls, path, operations=20_000_000, upload_bytes=100_000_000_000,
-                   media_bytes=1_000_000_000_000):
+    def initialize(cls, path, operations=5_000_000, upload_bytes=1_200_000_000_000,
+                   media_bytes=5_000_000_000_000):
         path = Path(path)
         # Exclusive creation: an installation rerun must never reset allowances.
         with path.open('xb'):
@@ -34,11 +35,22 @@ class R2Guard:
                     media_bytes INTEGER NOT NULL, used_operations INTEGER NOT NULL DEFAULT 0,
                     used_upload_bytes INTEGER NOT NULL DEFAULT 0,
                     used_media_bytes INTEGER NOT NULL DEFAULT 0,
-                    stopped TEXT NOT NULL DEFAULT '', stopped_at REAL);
+                    stopped TEXT NOT NULL DEFAULT '', stopped_at REAL, period TEXT NOT NULL DEFAULT '');
             ''')
-            db.execute('INSERT INTO limits(id,operations,upload_bytes,media_bytes) VALUES(1,?,?,?)',
-                       (operations, upload_bytes, media_bytes))
+            db.execute('INSERT INTO limits(id,operations,upload_bytes,media_bytes,period) VALUES(1,?,?,?,?)',
+                       (operations, upload_bytes, media_bytes, cls.month()))
         return cls(path)
+
+    @staticmethod
+    def month():
+        return datetime.fromtimestamp(time.time(),timezone.utc).strftime('%Y-%m')
+
+    def migrate_monthly(self):
+        with self.connect() as db:
+            columns={row[1] for row in db.execute('PRAGMA table_info(limits)')}
+            if 'period' not in columns:
+                db.execute("ALTER TABLE limits ADD COLUMN period TEXT NOT NULL DEFAULT ''")
+            db.execute("UPDATE limits SET period=?,operations=5000000,upload_bytes=1200000000000,media_bytes=5000000000000 WHERE period=''",(self.month(),))
 
     @contextlib.contextmanager
     def connect(self):
@@ -64,6 +76,12 @@ class R2Guard:
             row = db.execute('SELECT * FROM limits WHERE id=1').fetchone()
             if row is None:
                 raise CostLimit('Storage safety state is missing; access paused.')
+            if 'period' not in row.keys() or not row['period']:
+                raise CostLimit('Storage safety state requires the monthly migration.')
+            month=self.month()
+            if row['period']!=month:
+                db.execute('UPDATE limits SET period=?,used_operations=0,used_upload_bytes=0,used_media_bytes=0 WHERE id=1',(month,))
+                row=db.execute('SELECT * FROM limits WHERE id=1').fetchone()
             reason = row['stopped']
             if not reason:
                 for key, n in zip(('operations', 'upload_bytes', 'media_bytes'), increments):

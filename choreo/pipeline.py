@@ -49,6 +49,9 @@ def analyze(folder, models):
          "-ac", "2", "-ar", "44100", str(folder/"audio.wav")])
     run(["ffmpeg", "-y", "-v", "error", "-ss", str(min(1, duration/2)), "-i", str(folder/"practice.mp4"),
          "-frames:v", "1", "-update", "1", str(folder/"poster.jpg")])
+    from .screen import screen
+    stage(folder,"Checking content","screen")
+    screen(folder,models)
     stereo, sr = sf.read(folder/"audio.wav", dtype="float32", always_2d=True)
     y = librosa.resample(stereo.mean(axis=1), orig_sr=sr, target_sr=22050)
     if float(np.sqrt(np.mean(y*y))) < .0001:
@@ -157,7 +160,7 @@ def main():
         else:
             analyze(folder, models)
     except InvalidVideo as e:
-        write(folder/"error.json", {"message": str(e), "validation": True})
+        write(folder/"error.json", {"message": str(e), "validation": True, "code": getattr(e,"code",None)})
         sys.exit(2)
     except Exception:
         write(folder/"error.json", {"message": "Something went wrong with this video. Try again, or ask the person who runs this site.", "validation": False})

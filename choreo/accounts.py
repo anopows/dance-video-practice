@@ -140,6 +140,7 @@ def valid_claims(claims,cfg,nonce):
     audiences=aud if isinstance(aud,list) else [aud]
     return (cfg.google_client_id in audiences and
             (len(audiences)==1 or claims.get('azp')==cfg.google_client_id) and
+            (not claims.get('azp') or claims['azp']==cfg.google_client_id) and
             claims.get('iss') in ('https://accounts.google.com','accounts.google.com') and
             claims.get('email_verified') is True and
             isinstance(claims.get('sub'),str) and 0<len(claims['sub'])<=255 and claims['sub'].isascii() and
@@ -234,6 +235,7 @@ def install_routes(app,cfg,db,legal,origin,session,ip,rate,verify,*,mailer=None,
                 if not refusal:
                     token,csrf=create_session(con,cfg,user['id'])
                     kpi_count(con,kpi.bump,'signin.email.ok')
+                    kpi_count(con,kpi.bump,'login.ok')
         # Commit token consumption even when resolving an account is refused.
         if not row:raise HTTPException(400,'This sign-in link has expired or was already used. Ask for a new one.')
         if refusal:
@@ -303,6 +305,7 @@ def install_routes(app,cfg,db,legal,origin,session,ip,rate,verify,*,mailer=None,
             if not refusal:
                 token,_=create_session(con,cfg,user['id'])
                 kpi_count(con,kpi.bump,'signin.google.ok')
+                kpi_count(con,kpi.bump,'login.ok')
         return google_return({'banned':'failed'}.get(refusal,refusal)) if refusal else google_return(token=token)
 
     @app.post('/api/account/terms')
